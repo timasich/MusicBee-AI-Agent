@@ -82,14 +82,26 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ActionValidator.cs" />
+    <Compile Include="AdaptiveRetrievalBudget.cs" />
     <Compile Include="AgentController.cs" />
+    <Compile Include="AiOwnedPlaylistRegistry.cs" />
+    <Compile Include="AiResponseParser.cs" />
+    <Compile Include="CandidateRanker.cs" />
     <Compile Include="ChatForm.cs" />
+    <Compile Include="DomainModels.cs" />
+    <Compile Include="LibraryIndex.cs" />
+    <Compile Include="LibraryIndexingService.cs" />
+    <Compile Include="LibrarySearchService.cs" />
     <Compile Include="Models.cs" />
     <Compile Include="MusicBeeApiAdapter.cs" />
+    <Compile Include="NormalizationService.cs" />
     <Compile Include="MusicBeeInterface.cs" />
     <Compile Include="OpenAiCompatibleProvider.cs" />
     <Compile Include="Plugin.cs" />
     <Compile Include="PluginSettings.cs" />
+    <Compile Include="IntentParser.cs" />
+    <Compile Include="PromptBuilder.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="SettingsForm.cs" />
     <Compile Include="SimpleJson.cs" />

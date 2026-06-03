@@ -50,6 +50,23 @@ namespace MusicBeePlugin
             return SearchLibrary(intent, null);
         }
 
+        public List<TrackInfo> GetAllLibraryTracks()
+        {
+            List<TrackInfo> tracks = new List<TrackInfo>();
+            string[] files;
+            if (!api.Library_QueryFilesEx("", out files) || files == null)
+            {
+                return tracks;
+            }
+
+            for (int i = 0; i < files.Length; i++)
+            {
+                tracks.Add(BuildTrack("track_" + (i + 1), files[i], false));
+            }
+
+            return tracks;
+        }
+
         public List<TrackInfo> SearchLibrary(SearchIntent intent, TrackInfo nowPlaying)
         {
             List<TrackInfo> tracks = new List<TrackInfo>();

@@ -10,15 +10,25 @@ namespace MusicBeePlugin
     public class AgentController
     {
         private readonly MusicBeeApiAdapter musicBee;
+        private readonly LibrarySearchService librarySearch;
         private readonly IAiProvider aiProvider;
         private readonly PluginSettings settings;
+        private readonly AiOwnedPlaylistRegistry playlistRegistry;
+        private readonly IntentParser intentParser;
+        private readonly PromptBuilder promptBuilder;
+        private readonly AiResponseParser responseParser = new AiResponseParser();
+        private readonly ActionValidator actionValidator = new ActionValidator();
         private readonly string dataPath;
 
         public AgentController(MusicBeeApiAdapter musicBee, IAiProvider aiProvider, PluginSettings settings, string dataPath)
         {
             this.musicBee = musicBee;
+            this.librarySearch = new LibrarySearchService(musicBee, dataPath);
             this.aiProvider = aiProvider;
             this.settings = settings;
+            this.playlistRegistry = new AiOwnedPlaylistRegistry(dataPath);
+            this.intentParser = new IntentParser(settings);
+            this.promptBuilder = new PromptBuilder(settings);
             this.dataPath = dataPath;
         }
 
@@ -28,26 +38,27 @@ namespace MusicBeePlugin
             try
             {
                 TrackInfo nowPlaying = musicBee.GetNowPlaying();
-                SearchIntent intent = BuildIntent(userMessage);
+                SearchIntent intent = intentParser.Parse(userMessage);
                 List<TrackInfo> candidates = BuildCandidates(intent, nowPlaying);
                 CandidateSet candidateSet = new CandidateSet();
                 AddCandidates(candidateSet, candidates);
 
-                string systemPrompt = BuildSystemPrompt();
-                string raw = aiProvider.SendChat(systemPrompt, BuildUserPrompt(userMessage, nowPlaying, candidates, ""));
+                string systemPrompt = promptBuilder.BuildSystemPrompt();
+                LibraryProfile profile = librarySearch.GetProfile();
+                string raw = aiProvider.SendChat(systemPrompt, promptBuilder.BuildUserPrompt(userMessage, nowPlaying, candidates, "", profile));
                 AiChatResponse response = ParseAiResponseWithRepair(raw);
 
                 if (!settings.SmallLocalModelMode && response.ToolRequests.Count > 0)
                 {
                     string toolResults = ExecuteReadOnlyTools(response.ToolRequests, candidateSet, nowPlaying);
-                    raw = aiProvider.SendChat(systemPrompt, BuildUserPrompt(userMessage, nowPlaying, new List<TrackInfo>(candidateSet.Tracks), toolResults));
+                    raw = aiProvider.SendChat(systemPrompt, promptBuilder.BuildUserPrompt(userMessage, nowPlaying, new List<TrackInfo>(candidateSet.Tracks), toolResults, profile));
                     response = ParseAiResponseWithRepair(raw);
                 }
 
                 result.Message = response.Message;
                 if (response.Actions.Count > 0)
                 {
-                    result.PendingAction = Validate(response.Actions[0], candidateSet);
+                    result.PendingAction = actionValidator.Validate(response.Actions[0], candidateSet);
                 }
 
                 Log("request", userMessage);
@@ -98,9 +109,14 @@ namespace MusicBeePlugin
                     message = ok ? "Queued tracks next." : "MusicBee did not queue the tracks.";
                     break;
                 case "create_playlist":
-                    string playlistUrl = musicBee.CreatePlaylist(pending.Action.Title, pending.Tracks);
+                    string playlistName = playlistRegistry.NormalizeName(pending.Action.Title);
+                    string playlistUrl = musicBee.CreatePlaylist(playlistName, pending.Tracks);
                     ok = !string.IsNullOrEmpty(playlistUrl);
-                    message = ok ? "Created playlist: " + pending.Action.Title : "MusicBee did not create the playlist.";
+                    if (ok)
+                    {
+                        playlistRegistry.Register(playlistUrl, playlistName);
+                    }
+                    message = ok ? "Created playlist: " + playlistName : "MusicBee did not create the playlist.";
                     break;
                 case "play_track_now":
                     ok = pending.Tracks.Count == 1 && musicBee.PlayNow(pending.Tracks[0]);
@@ -117,7 +133,7 @@ namespace MusicBeePlugin
 
         private List<TrackInfo> BuildCandidates(SearchIntent intent, TrackInfo nowPlaying)
         {
-            return musicBee.SearchLibrary(intent, nowPlaying);
+            return librarySearch.Search(intent, nowPlaying, settings);
         }
 
         private SearchIntent BuildIntent(string userMessage)
@@ -196,13 +212,17 @@ namespace MusicBeePlugin
                 "Dangerous actions are forbidden. All write actions require confirmation.";
         }
 
-        private string BuildUserPrompt(string userMessage, TrackInfo nowPlaying, List<TrackInfo> candidates, string toolResults)
+        private string BuildUserPrompt(string userMessage, TrackInfo nowPlaying, List<TrackInfo> candidates, string toolResults, LibraryProfile profile)
         {
             StringBuilder builder = new StringBuilder();
             builder.AppendLine("User request:");
             builder.AppendLine(userMessage ?? "");
             builder.AppendLine();
             builder.AppendLine("Privacy mode: " + settings.PrivacyMode);
+            if (profile != null && profile.TrackCount > 0 && !settings.SmallLocalModelMode)
+            {
+                builder.AppendLine(profile.ToPromptSummary());
+            }
             if (settings.SmallLocalModelMode)
             {
                 builder.AppendLine("Small local model mode: use the simplest valid JSON. Do not request tools.");
@@ -270,7 +290,7 @@ namespace MusicBeePlugin
                 builder.AppendLine("Tool: " + request.Name);
                 if (request.Name == "get_now_playing")
                 {
-                    AppendTrack(builder, nowPlaying);
+                    promptBuilder.AppendTrack(builder, nowPlaying);
                 }
                 else if (request.Name == "get_current_queue")
                 {
@@ -282,13 +302,13 @@ namespace MusicBeePlugin
                     intent.Similar = true;
                     intent.QueryText = request.Query;
                     intent.MaxTracks = limit;
-                    AddToolTracks(builder, musicBee.SearchLibrary(intent, nowPlaying), candidateSet);
+                    AddToolTracks(builder, librarySearch.Search(intent, nowPlaying, settings), candidateSet);
                 }
                 else if (request.Name == "search_library")
                 {
-                    SearchIntent intent = BuildIntent(request.Query);
+                    SearchIntent intent = intentParser.Parse(request.Query);
                     intent.MaxTracks = limit;
-                    AddToolTracks(builder, musicBee.SearchLibrary(intent, nowPlaying), candidateSet);
+                    AddToolTracks(builder, librarySearch.Search(intent, nowPlaying, settings), candidateSet);
                 }
                 else
                 {
@@ -310,7 +330,7 @@ namespace MusicBeePlugin
             AddCandidates(candidateSet, tracks);
             foreach (TrackInfo track in tracks)
             {
-                AppendTrack(builder, track);
+                promptBuilder.AppendTrack(builder, track);
             }
         }
 
@@ -326,14 +346,14 @@ namespace MusicBeePlugin
         {
             try
             {
-                return ParseAiResponse(raw);
+                return responseParser.Parse(raw);
             }
             catch (Exception ex)
             {
                 Log("json-parse-error", ex.Message + " raw=" + raw);
                 string repaired = TryRepairJson(raw);
                 Log("json-repair", repaired);
-                return ParseAiResponse(repaired);
+                return responseParser.Parse(repaired);
             }
         }
 

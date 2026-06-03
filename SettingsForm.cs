@@ -37,7 +37,7 @@ namespace MusicBeePlugin
             apiKey.PasswordChar = '*';
             model = AddTextBox("Model", Settings.Model, labelWidth, ref top);
             temperature = AddNumber("Temperature", 0, 2, 1, (decimal)Settings.Temperature, labelWidth, ref top);
-            maxTokens = AddNumber("Max tokens", 1, 32000, 0, Settings.MaxTokens, labelWidth, ref top);
+            maxTokens = AddNumber("Max tokens", 1, 1000000, 0, Settings.MaxTokens, labelWidth, ref top);
             timeout = AddNumber("Timeout seconds", 5, 300, 0, Settings.RequestTimeoutSeconds, labelWidth, ref top);
 
             Label privacyLabel = AddLabel("Privacy mode", labelWidth, top);

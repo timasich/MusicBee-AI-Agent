@@ -4,4 +4,6 @@ obj/
 *.suo
 *.cache
 *.log
+tests/*.exe
+tests/*.dll
 .vs/

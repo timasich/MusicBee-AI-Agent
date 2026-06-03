@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace MusicBeePlugin
@@ -10,6 +12,7 @@ namespace MusicBeePlugin
         private PluginInfo about = new PluginInfo();
         private PluginSettings settings;
         private MusicBeeApiAdapter musicBee;
+        private LibraryIndexingService indexingService;
         private ChatForm chatForm;
         private string pluginDataPath;
 
@@ -23,6 +26,7 @@ namespace MusicBeePlugin
 
             settings = PluginSettings.Load(pluginDataPath);
             musicBee = new MusicBeeApiAdapter(mbApiInterface);
+            indexingService = new LibraryIndexingService(pluginDataPath);
 
             about.PluginInfoVersion = PluginInfoVersion;
             about.Name = "MusicBee AI Agent";
@@ -49,6 +53,7 @@ namespace MusicBeePlugin
                 {
                     settings = form.Settings;
                     settings.Save(pluginDataPath);
+                    ResetChatAfterSettingsChange();
                 }
             }
 
@@ -83,6 +88,8 @@ namespace MusicBeePlugin
             {
                 mbApiInterface.MB_AddMenuItem("mnuTools/MusicBee AI Agent - Open Chat", "", OpenChatFromMenu);
                 mbApiInterface.MB_AddMenuItem("mnuTools/MusicBee AI Agent - Settings", "", OpenSettingsFromMenu);
+                mbApiInterface.MB_AddMenuItem("mnuTools/MusicBee AI Agent - Rebuild Library Index", "", RebuildIndexFromMenu);
+                StartInitialIndexing();
             }
         }
 
@@ -94,6 +101,79 @@ namespace MusicBeePlugin
         private void OpenSettingsFromMenu(object sender, EventArgs e)
         {
             Configure(IntPtr.Zero);
+        }
+
+        private void RebuildIndexFromMenu(object sender, EventArgs e)
+        {
+            List<TrackInfo> snapshot = musicBee.GetAllLibraryTracks();
+            if (snapshot.Count == 0)
+            {
+                MessageBox.Show("MusicBee returned zero library tracks. Index rebuild was not started.", "MusicBee AI Agent");
+                return;
+            }
+
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    indexingService.RebuildIndexFromSnapshot(snapshot);
+                }
+                catch (Exception ex)
+                {
+                    try
+                    {
+                        File.AppendAllText(Path.Combine(pluginDataPath, "index.log"), DateTime.Now.ToString("s") + " Manual rebuild failed: " + ex + Environment.NewLine);
+                    }
+                    catch
+                    {
+                    }
+                }
+            });
+            MessageBox.Show("MusicBee AI Agent started rebuilding the library index in the background. Snapshot tracks: " + snapshot.Count, "MusicBee AI Agent");
+        }
+
+        private void StartInitialIndexing()
+        {
+            if (indexingService.HasAnyIndexedTracks())
+            {
+                ThreadPool.QueueUserWorkItem(delegate { indexingService.MarkChecked(); });
+                return;
+            }
+
+            List<TrackInfo> snapshot = musicBee.GetAllLibraryTracks();
+            if (snapshot.Count == 0)
+            {
+                return;
+            }
+
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    indexingService.RebuildIndexFromSnapshot(snapshot);
+                }
+                catch (Exception ex)
+                {
+                    try
+                    {
+                        File.AppendAllText(Path.Combine(pluginDataPath, "index.log"), DateTime.Now.ToString("s") + " Initial index failed: " + ex + Environment.NewLine);
+                    }
+                    catch
+                    {
+                    }
+                }
+            });
+        }
+
+        private void ResetChatAfterSettingsChange()
+        {
+            if (chatForm != null && !chatForm.IsDisposed)
+            {
+                chatForm.AllowClose = true;
+                chatForm.Close();
+                chatForm = null;
+                MessageBox.Show("Settings saved. Reopen MusicBee AI Agent chat to use the new provider/model.", "MusicBee AI Agent");
+            }
         }
 
         private void ShowChat()
