@@ -18,16 +18,25 @@ namespace MusicBeePlugin
         {
             Settings = Copy(settings);
 
-            Text = "MusicBee AI Agent Settings";
+            Text = "MusicBee AI Agent Settings (Alpha)";
             Width = 520;
-            Height = 260;
+            Height = 300;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
             StartPosition = FormStartPosition.CenterParent;
 
             int labelWidth = 130;
-            int top = 16;
+            Label alpha = new Label();
+            alpha.Text = "ALPHA: experimental agent. Review every action before confirming.";
+            alpha.Left = 16;
+            alpha.Top = 14;
+            alpha.Width = 458;
+            alpha.Height = 32;
+            alpha.ForeColor = Color.DarkRed;
+            Controls.Add(alpha);
+
+            int top = 56;
 
             baseUrl = AddTextBox("Base URL", Settings.BaseUrl, labelWidth, ref top);
             apiKey = AddTextBox("API Key", Settings.ApiKey, labelWidth, ref top);

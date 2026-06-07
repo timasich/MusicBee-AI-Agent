@@ -1,52 +1,44 @@
-# MusicBee AI Agent Plugin
+# MusicBee AI Agent
 
-MusicBee AI Agent is an experimental MusicBee plugin that adds an AI chat assistant to the player.
+Experimental alpha MusicBee plugin that adds an AI music assistant.
 
-The assistant can read MusicBee context, ask an OpenAI-compatible chat completions endpoint for a structured response, preview proposed actions, and execute only confirmed safe actions through the MusicBee API.
+The model understands the request. The plugin executes only structured, validated, user-confirmed actions.
 
-## Current status
+## Status
 
-This is an MVP plus early architecture work.
+Alpha. Expect bugs, rough UI, and changing behavior.
 
-Working:
+## Features
 
-- MusicBee plugin shell.
-- Standalone chat window.
-- Settings window.
-- OpenAI-compatible provider.
-- Current track context.
-- Basic local library search.
-- Basic similarity scoring.
-- Action preview.
-- Create playlist.
-- Queue next / queue last.
-- Play now.
-- Model-directed orchestration workflow.
-- JSON repair pass.
-- Initial SQLite-backed library index foundation.
+- Chat with an OpenAI-compatible model.
+- Read current track and local library metadata.
+- Search tracks, artists, genres, years, and custom fields.
+- Create playlists.
+- Queue tracks next or last.
+- Play one selected track.
+- Edit existing playlists through previewed actions.
+- Use MusicBrainz/ListenBrainz for similar artists.
+- Use Wikipedia for short artist/album/track background.
 
-Not finished:
+## Safety And Privacy
 
-- Full retrieval/ranking architecture.
-- Advanced library profile.
-- AI-owned playlist registry.
-- Unit tests.
-- Release packaging.
-- Dockable MusicBee panel UI direction.
+- The model does not call MusicBee directly.
+- Write actions always show a preview and require confirmation.
+- Local audio files are not uploaded.
+- The configured model receives chat history and selected music metadata.
+- Internet lookups are read-only and only use music metadata needed for the lookup.
+- Do not use this alpha with private libraries if you do not trust your configured model endpoint.
 
 ## Requirements
 
-- MusicBee desktop installation.
-- Plugin DLL name must start with `MB_`.
-- MusicBee runs as a 32-bit process, so build/use x86.
-- OpenAI-compatible model endpoint such as LM Studio, Ollama-compatible gateway, or an online provider.
+- MusicBee for Windows.
+- x86 build target.
+- OpenAI-compatible chat completions endpoint.
 
 ## Build
 
-From the repository root:
-
 ```powershell
-& C:\Windows\Microsoft.NET\Framework\v4.0.30319\msbuild.exe CSharpDll.sln /p:Configuration=Release /p:Platform=x86 /v:m
+msbuild CSharpDll.sln /p:Configuration=Release /p:Platform=x86
 ```
 
 Output:
@@ -57,53 +49,30 @@ bin\x86\Release\MB_AI_Agent.dll
 
 ## Install
 
-Close MusicBee, then run PowerShell as Administrator:
-
-```powershell
-cd "C:\Users\timas\source\repos\MusicBee AI Agent Plugin"
-.\install-plugin.ps1
-```
-
-Start MusicBee again.
-
-Menu items:
+Copy `MB_AI_Agent.dll` to the MusicBee plugins folder, restart MusicBee, then open:
 
 - `Tools -> MusicBee AI Agent - Open Chat`
 - `Tools -> MusicBee AI Agent - Settings`
 
-## LM Studio example
+## Settings
 
-Settings:
+- Base URL, for example `http://localhost:1234/v1`
+- API Key, optional for local servers
+- Model
+- Max tokens
+- Timeout seconds
 
-- Base URL: `http://localhost:1234/v1`
-- API Key: empty
-- Model: model id shown in LM Studio
-- Max tokens: choose enough for JSON response and short candidate lists
+## Docs
 
-For LAN testing, use the host IP:
+- [User guide](docs/user-guide.md)
+- [Development notes](docs/development/architecture.md)
+- [Manual tests](docs/development/manual-tests.md)
 
-```text
-http://192.168.x.x:1234/v1
-```
+## Donations
 
-## Safety model
+- [Ko-fi](https://ko-fi.com/timasich)
+- [Donation Alerts](https://www.donationalerts.com/r/timasich)
 
-The LLM never controls MusicBee directly.
+## License
 
-Allowed write actions:
-
-- `create_playlist`
-- `queue_tracks_last`
-- `queue_tracks_next`
-- `play_track_now`
-
-Forbidden in MVP:
-
-- delete files;
-- delete playlists;
-- overwrite user playlists;
-- clear queue;
-- bulk edit tags;
-- commit tags to files.
-
-All write actions require preview and confirmation.
+[MIT](LICENSE).

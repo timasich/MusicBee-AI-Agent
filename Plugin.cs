@@ -33,7 +33,7 @@ namespace MusicBeePlugin
 
             about.PluginInfoVersion = PluginInfoVersion;
             about.Name = "MusicBee AI Agent";
-            about.Description = "AI chat assistant for MusicBee with confirmed structured actions.";
+            about.Description = "Experimental alpha AI chat assistant for MusicBee with confirmed structured actions.";
             about.Author = "MusicBee AI Agent";
             about.TargetApplication = "";
             about.Type = PluginType.General;
