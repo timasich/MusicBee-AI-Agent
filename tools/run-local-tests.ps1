@@ -11,6 +11,9 @@ if (-not (Test-Path $dll)) {
 }
 
 & C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe /nologo /platform:x86 /target:exe /out:$testExe /reference:$dll $testSource
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
 Copy-Item -LiteralPath $dll -Destination $testDll -Force
 & $testExe
 if ($LASTEXITCODE -ne 0) {

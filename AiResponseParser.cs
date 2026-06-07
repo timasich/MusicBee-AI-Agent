@@ -16,6 +16,7 @@ namespace MusicBeePlugin
 
             AiChatResponse response = new AiChatResponse();
             response.Message = SimpleJson.GetString(root, "message");
+            response.ChatTitle = SimpleJson.GetString(root, "chatTitle");
 
             object actionsValue;
             IList actions = root.TryGetValue("actions", out actionsValue) ? actionsValue as IList : null;
@@ -32,7 +33,15 @@ namespace MusicBeePlugin
                     AiAction action = new AiAction();
                     action.Type = SimpleJson.GetString(actionObject, "type");
                     action.RequiresConfirmation = SimpleJson.GetBool(actionObject, "requiresConfirmation", true);
+                    action.AllowVersions = SimpleJson.GetBool(actionObject, "allowVersions", false);
+                    int targetDuration;
+                    if (int.TryParse(SimpleJson.GetString(actionObject, "targetDurationSeconds"), out targetDuration))
+                    {
+                    action.TargetDurationSeconds = targetDuration;
+                    }
                     action.Title = SimpleJson.GetString(actionObject, "title");
+                    action.PlaylistUrl = SimpleJson.GetString(actionObject, "playlistUrl");
+                    action.PlaylistName = SimpleJson.GetString(actionObject, "playlistName");
                     action.Explanation = SimpleJson.GetString(actionObject, "explanation");
 
                     object idsValue;

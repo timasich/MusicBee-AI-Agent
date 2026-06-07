@@ -211,6 +211,28 @@ namespace MusicBeePlugin
             return profile;
         }
 
+        public List<LibraryFacetValue> GetFacetValues(string field, string query, int limit)
+        {
+            field = (field ?? "").Trim().ToLowerInvariant();
+            query = (query ?? "").Trim();
+            limit = Math.Max(1, Math.Min(500, limit <= 0 ? 80 : limit));
+
+            if (field == "genres")
+            {
+                return QueryFacetValues("SELECT name, track_count FROM genres " + FacetWhere("name", query) + " ORDER BY track_count DESC, name LIMIT " + limit + ";");
+            }
+            if (field == "artists")
+            {
+                return QueryFacetValues("SELECT name, track_count FROM artists " + FacetWhere("name", query) + " ORDER BY track_count DESC, name LIMIT " + limit + ";");
+            }
+            if (field == "years")
+            {
+                return QueryFacetValues("SELECT year, COUNT(*) FROM tracks WHERE year IS NOT NULL AND year <> ''" + FacetAnd("year", query) + " GROUP BY year ORDER BY year DESC LIMIT " + limit + ";");
+            }
+
+            return new List<LibraryFacetValue>();
+        }
+
         public void RegisterAiPlaylist(string playlistUrl, string name)
         {
             if (string.IsNullOrEmpty(playlistUrl))
@@ -386,6 +408,51 @@ namespace MusicBeePlugin
             }
 
             return builder.ToString();
+        }
+
+        private List<LibraryFacetValue> QueryFacetValues(string sql)
+        {
+            List<LibraryFacetValue> values = new List<LibraryFacetValue>();
+            IntPtr stmt = IntPtr.Zero;
+            try
+            {
+                int rc = SQLiteNative.sqlite3_prepare_v2(db, Utf8(sql), -1, out stmt, IntPtr.Zero);
+                if (rc != SQLiteNative.SQLITE_OK)
+                {
+                    return values;
+                }
+
+                while (SQLiteNative.sqlite3_step(stmt) == SQLiteNative.SQLITE_ROW)
+                {
+                    LibraryFacetValue value = new LibraryFacetValue();
+                    value.Value = Column(stmt, 0);
+                    int count;
+                    value.Count = int.TryParse(Column(stmt, 1), out count) ? count : 0;
+                    if (!string.IsNullOrEmpty(value.Value))
+                    {
+                        values.Add(value);
+                    }
+                }
+            }
+            finally
+            {
+                if (stmt != IntPtr.Zero)
+                {
+                    SQLiteNative.sqlite3_finalize(stmt);
+                }
+            }
+
+            return values;
+        }
+
+        private static string FacetWhere(string column, string query)
+        {
+            return string.IsNullOrEmpty(query) ? "" : "WHERE lower(" + column + ") LIKE " + Q("%" + query.ToLowerInvariant() + "%");
+        }
+
+        private static string FacetAnd(string column, string query)
+        {
+            return string.IsNullOrEmpty(query) ? "" : " AND lower(" + column + ") LIKE " + Q("%" + query.ToLowerInvariant() + "%");
         }
 
         private void SetProfile(string key, string value)

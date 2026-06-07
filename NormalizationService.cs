@@ -13,6 +13,48 @@ namespace MusicBeePlugin
             return value;
         }
 
+        public static string ArtistKey(string artist)
+        {
+            return NormalizeKey(artist);
+        }
+
+        public static string AlbumKey(string album, string albumArtist)
+        {
+            return NormalizeKey((album ?? "") + "|" + (albumArtist ?? ""));
+        }
+
+        public static string CanonicalTitleKey(string title)
+        {
+            string value = NormalizeKey(title);
+            value = Regex.Replace(value, "\\[[^\\]]*\\]", " ");
+            value = Regex.Replace(value, "\\([^\\)]*\\)", " ");
+            value = Regex.Replace(value, "\\{[^\\}]*\\}", " ");
+            value = Regex.Replace(value, "\\s+-\\s+.*\\b(remix|mix|edit|version|live|remaster(ed)?)\\b.*$", " ");
+            value = Regex.Replace(value, "\\b(remix|mix|edit|version)\\s+by\\s+.+$", " ");
+            value = Regex.Replace(value, "\\b(remixed|mixed|edited)\\s+by\\s+.+$", " ");
+            value = Regex.Replace(value, "\\b(live|remaster(ed)?|radio edit|single version|album version|instrumental|acoustic|demo|edit|mix|remix|mono|stereo|version|bonus track)\\b", " ");
+            value = Regex.Replace(value, "\\b(\\d{4})\\b", " ");
+            value = Regex.Replace(value, "[^\\p{L}\\p{Nd}]+", " ");
+            value = Regex.Replace(value, "\\s+", " ").Trim();
+            return value;
+        }
+
+        public static string CanonicalTrackKey(TrackInfo track)
+        {
+            if (track == null)
+            {
+                return "";
+            }
+
+            string title = CanonicalTitleKey(track.Title);
+            if (string.IsNullOrEmpty(title))
+            {
+                return NormalizeKey(track.FileUrl);
+            }
+
+            return ArtistKey(track.Artist) + "|" + title;
+        }
+
         public static string[] Tokenize(params string[] values)
         {
             Dictionary<string, bool> seen = new Dictionary<string, bool>();
@@ -62,11 +104,20 @@ namespace MusicBeePlugin
 
         public static string RatingBucket(string rating)
         {
-            int value = ParseInt(rating);
+            int value = NormalizeRating(rating);
             if (value >= 80) return "favorite";
             if (value >= 60) return "liked";
             if (value > 0) return "rated";
             return "";
+        }
+
+        public static int NormalizeRating(string rating)
+        {
+            int value = ParseInt(rating);
+            if (value <= 0) return 0;
+            if (value <= 5) return value * 20;
+            if (value <= 10) return value * 10;
+            return Math.Min(100, value);
         }
 
         public static string DurationBucket(string duration)

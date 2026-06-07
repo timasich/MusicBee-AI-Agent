@@ -75,9 +75,8 @@ Connection:
 - Base URL
 - API Key
 - Model name
-- Temperature
 - Max tokens
-- Privacy mode
+- Timeout
 ```
 
 Suggested provider presets:
@@ -353,35 +352,17 @@ The MVP may include only a placeholder interface for internet search. The first 
 
 ---
 
-## 9. Privacy Modes
+## 9. External Context
 
-The plugin should support different privacy levels.
-
-### Strict Local
+The plugin should expose external music context only through explicit read-only tools.
 
 ```text
-- Use only local library data
-- Use only local LLM providers
-- Do not send anything to external services
+- Use ListenBrainz/MusicBrainz for similar artist lookup
+- Use Wikipedia for artist, album, and track background
+- Use local library metadata for local track selection
+- Do not send local file paths to the model
+- Require user confirmation for write actions
 ```
-
-### Metadata Only
-
-```text
-- Online model/search can receive artist/title/album/genre
-- Do not send local file paths
-- Do not send detailed listening history
-```
-
-### Full Online
-
-```text
-- User explicitly allows extended context
-- Online services may receive richer metadata and listening summaries
-- Still avoid sending local file paths unless absolutely necessary
-```
-
-For online mode, local paths should be removed or replaced with internal track IDs.
 
 ---
 
@@ -560,8 +541,8 @@ MVP features:
    - base URL
    - API key
    - model name
-   - temperature
-   - privacy mode
+   - max tokens
+   - timeout
 3. Read current track metadata from MusicBee.
 4. Search local library by basic metadata.
 5. Create a playlist from selected tracks.
@@ -599,5 +580,5 @@ The LLM must never call MusicBee directly. It returns structured intents/actions
 11. Add basic library search.
 12. Add find_similar_tracks_basic.
 13. Add logging for actions and errors.
-14. Add privacy mode filtering.
+14. Add explicit read-only external lookup tools.
 ```

@@ -16,11 +16,8 @@
 - OpenAI-compatible Base URL.
 - API Key.
 - Model name.
-- Temperature.
 - Max tokens.
 - Timeout.
-- Privacy mode.
-- Small local model mode.
 
 ### Чат
 
@@ -92,7 +89,7 @@
 - Все `trackIds` валидируются локально.
 - Write actions требуют подтверждения.
 - Destructive actions не поддерживаются.
-- В `MetadataOnly` локальные file paths не отправляются модели.
+- Локальные file paths не отправляются модели.
 
 ### JSON robustness
 
@@ -102,6 +99,9 @@
 - Базовый SQLite index foundation.
 - Первичное фоновое индексирование библиотеки.
 - Ручной rebuild index через меню Tools.
+- Canonical-дедупликация треков и версий.
+- Diversity-aware ranking для запросов с разными исполнителями/альбомами.
+- Локальное предупреждение, если библиотека не может дать достаточно разных исполнителей.
 
 ## Частично готово
 
@@ -116,7 +116,6 @@
 
 Ограничения:
 
-- отключен в Small local model mode;
 - только один дополнительный проход;
 - нет полноценного многошагового planner/executor цикла.
 
@@ -134,18 +133,17 @@
 - подбор приближается к длительности, но не решает задачу оптимально;
 - нет точного knapsack-подбора.
 
-### Privacy modes
+### External lookup
 
-Есть режимы:
+Есть read-only internet tools:
 
-- StrictLocal;
-- MetadataOnly;
-- FullOnline.
+- `lookup_listenbrainz_similar_artists`;
+- `lookup_wikipedia`.
 
 Ограничения:
 
-- StrictLocal пока не запрещает онлайн endpoint технически, это пользовательская настройка;
-- нет отдельного internet search module.
+- внешняя информация используется только по явному tool request модели;
+- write actions все равно требуют подтверждения пользователя.
 
 ## Не готово
 

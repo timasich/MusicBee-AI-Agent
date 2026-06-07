@@ -77,7 +77,8 @@ namespace MusicBeePlugin
             }
 
             intent = intent ?? new SearchIntent();
-            string[] tokens = Tokenize(intent.QueryText);
+            string query = string.IsNullOrWhiteSpace(intent.RetrievalQuery) ? intent.QueryText : intent.RetrievalQuery;
+            string[] tokens = Tokenize(query + " " + (intent.QueryText ?? ""));
             int scanLimit = Math.Min(files.Length, 3000);
             for (int i = 0; i < scanLimit; i++)
             {
@@ -99,12 +100,19 @@ namespace MusicBeePlugin
                 }
             }
 
-            tracks.Sort(delegate(TrackInfo a, TrackInfo b)
+            if (string.Equals(intent.SelectionMode, "random", StringComparison.OrdinalIgnoreCase))
             {
-                int score = b.Score.CompareTo(a.Score);
-                if (score != 0) return score;
-                return string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
-            });
+                Shuffle(tracks);
+            }
+            else
+            {
+                tracks.Sort(delegate(TrackInfo a, TrackInfo b)
+                {
+                    int score = b.Score.CompareTo(a.Score);
+                    if (score != 0) return score;
+                    return string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
+                });
+            }
 
             int targetCount = Math.Min(Math.Max(1, intent.MaxTracks), tracks.Count);
             List<TrackInfo> result = new List<TrackInfo>();
@@ -139,6 +147,56 @@ namespace MusicBeePlugin
             return SearchLibrary(intent, current);
         }
 
+        public List<LibraryFacetValue> GetCustomFields()
+        {
+            List<LibraryFacetValue> fields = new List<LibraryFacetValue>();
+            Plugin.MetaDataType[] customFields = new Plugin.MetaDataType[]
+            {
+                Plugin.MetaDataType.Custom1,
+                Plugin.MetaDataType.Custom2,
+                Plugin.MetaDataType.Custom3,
+                Plugin.MetaDataType.Custom4,
+                Plugin.MetaDataType.Custom5,
+                Plugin.MetaDataType.Custom6,
+                Plugin.MetaDataType.Custom7,
+                Plugin.MetaDataType.Custom8,
+                Plugin.MetaDataType.Custom9,
+                Plugin.MetaDataType.Custom10,
+                Plugin.MetaDataType.Custom11,
+                Plugin.MetaDataType.Custom12,
+                Plugin.MetaDataType.Custom13,
+                Plugin.MetaDataType.Custom14,
+                Plugin.MetaDataType.Custom15,
+                Plugin.MetaDataType.Custom16
+            };
+
+            for (int i = 0; i < customFields.Length; i++)
+            {
+                string name = "";
+                try
+                {
+                    name = api.Setting_GetFieldName(customFields[i]);
+                }
+                catch
+                {
+                    name = "";
+                }
+
+                bool configured = !string.IsNullOrWhiteSpace(name);
+                if (!configured)
+                {
+                    name = "Custom" + (i + 1);
+                }
+
+                LibraryFacetValue value = new LibraryFacetValue();
+                value.Value = "slot=Custom" + (i + 1) + "; displayName=" + name + "; configured=" + (configured ? "true" : "false");
+                value.Count = 0;
+                fields.Add(value);
+            }
+
+            return fields;
+        }
+
         private static void ScoreTrack(TrackInfo track, TrackInfo nowPlaying, SearchIntent intent, string[] tokens)
         {
             int score = 0;
@@ -159,12 +217,12 @@ namespace MusicBeePlugin
                 if (Same(track.Artist, nowPlaying.Artist))
                 {
                     score += 45;
-                    reasons.Add("same artist");
+                    reasons.Add("same artist as seed");
                 }
                 if (Same(track.AlbumArtist, nowPlaying.AlbumArtist))
                 {
                     score += 35;
-                    reasons.Add("same album artist");
+                    reasons.Add("same seed album artist");
                 }
                 if (Same(track.Genre, nowPlaying.Genre))
                 {
@@ -185,7 +243,7 @@ namespace MusicBeePlugin
                 }
             }
 
-            int rating = ParseInt(track.Rating);
+            int rating = NormalizationService.NormalizeRating(track.Rating);
             if (rating >= 70)
             {
                 score += 15;
@@ -205,18 +263,20 @@ namespace MusicBeePlugin
                 score -= Math.Min(20, skipCount * 3);
             }
 
-            int bpm = ParseInt(track.Bpm);
-            if (intent.Calmer && bpm > 0)
-            {
-                score += bpm <= 105 ? 15 : -10;
-            }
-            if (intent.Energetic && bpm > 0)
-            {
-                score += bpm >= 115 ? 15 : -5;
-            }
-
             track.Score = score;
             track.ScoreReason = reasons.Count == 0 ? "" : string.Join(", ", reasons.ToArray());
+        }
+
+        private static void Shuffle(List<TrackInfo> tracks)
+        {
+            Random random = new Random();
+            for (int i = tracks.Count - 1; i > 0; i--)
+            {
+                int j = random.Next(i + 1);
+                TrackInfo temp = tracks[i];
+                tracks[i] = tracks[j];
+                tracks[j] = temp;
+            }
         }
 
         public bool QueueLast(IEnumerable<TrackInfo> tracks)
@@ -238,6 +298,70 @@ namespace MusicBeePlugin
         {
             string name = string.IsNullOrEmpty(playlistName) ? "AI Playlist" : playlistName;
             return api.Playlist_CreatePlaylist("", name, ToUrls(tracks));
+        }
+
+        public List<PlaylistRecord> GetPlaylists()
+        {
+            List<PlaylistRecord> records = new List<PlaylistRecord>();
+            if (!api.Playlist_QueryPlaylists())
+            {
+                return records;
+            }
+
+            string playlistUrl;
+            while (!string.IsNullOrEmpty(playlistUrl = api.Playlist_QueryGetNextPlaylist()))
+            {
+                PlaylistRecord record = new PlaylistRecord();
+                record.PlaylistUrl = playlistUrl;
+                record.Name = api.Playlist_GetName(playlistUrl);
+                records.Add(record);
+            }
+            return records;
+        }
+
+        public List<TrackInfo> GetPlaylistTracks(string playlistUrl, int maxTracks)
+        {
+            List<TrackInfo> tracks = new List<TrackInfo>();
+            if (string.IsNullOrEmpty(playlistUrl))
+            {
+                return tracks;
+            }
+
+            string[] files;
+            if (!api.Playlist_QueryFilesEx(playlistUrl, out files) || files == null)
+            {
+                return tracks;
+            }
+
+            int count = Math.Min(files.Length, Math.Max(1, maxTracks));
+            for (int i = 0; i < count; i++)
+            {
+                tracks.Add(BuildTrack("playlist_track_" + (i + 1), files[i], false));
+            }
+            return tracks;
+        }
+
+        public bool ReplacePlaylistTracks(string playlistUrl, IEnumerable<TrackInfo> tracks)
+        {
+            if (string.IsNullOrEmpty(playlistUrl))
+            {
+                return false;
+            }
+            return api.Playlist_SetFiles(playlistUrl, ToUrls(tracks));
+        }
+
+        public bool AppendPlaylistTracks(string playlistUrl, IEnumerable<TrackInfo> tracks)
+        {
+            if (string.IsNullOrEmpty(playlistUrl))
+            {
+                return false;
+            }
+            return api.Playlist_AppendFiles(playlistUrl, ToUrls(tracks));
+        }
+
+        public bool DeletePlaylist(string playlistUrl)
+        {
+            return !string.IsNullOrEmpty(playlistUrl) && api.Playlist_DeletePlaylist(playlistUrl);
         }
 
         private TrackInfo BuildTrack(string id, string fileUrl, bool nowPlaying)

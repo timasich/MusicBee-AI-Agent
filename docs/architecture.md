@@ -246,7 +246,7 @@ Summaries можно генерировать лениво и кэшироват
 - album info;
 - new music recommendations.
 
-Этот модуль должен быть отделен от MusicBee API и подчиняться privacy mode.
+Этот модуль должен быть отделен от MusicBee API и вызываться только как явный read-only tool.
 
 ## Ranking architecture
 
@@ -281,7 +281,7 @@ LLM получает не "сырые" тысячи треков, а уже ра
 
 - можно сканировать почти всю библиотеку;
 - можно быстро построить top candidates без сложных кластеров;
-- LLM получает 20-40 кандидатов для сильной модели или 8-12 для small mode.
+- LLM получает компактный shortlist кандидатов, обычно 20-40 треков.
 
 ### Средняя библиотека: 500-5000 треков
 
@@ -310,41 +310,20 @@ LLM получает не "сырые" тысячи треков, а уже ра
 
 ## Agent workflow
 
-### Small local model mode
+### Model-directed workflow
 
-Цель: стабильность.
-
-1. Пользователь пишет запрос.
-2. Локальный `IntentParser` определяет intent.
-3. Local retriever/ranker выбирает небольшой candidate set.
-4. LLM получает короткий prompt.
-5. LLM возвращает простой JSON.
-6. Если JSON сломан, включается repair pass.
-7. Action валидируется и показывается preview.
-
-Особенности:
-
-- tool loop отключен;
-- prompt короткий;
-- candidates ограничены;
-- больше решений принимает локальная логика;
-- LLM в основном объясняет и выбирает.
-
-### Strong model mode
-
-Цель: более сложное агентное поведение.
+Цель: единое агентное поведение без пользовательских режимов модели.
 
 1. Пользователь пишет запрос.
-2. `IntentParser` строит первичный intent.
-3. `RetrievalPlanner` выбирает read-only tools.
-4. Tools возвращают summaries/candidates.
-5. LLM может запросить дополнительный read-only шаг.
-6. CandidateRanker формирует итоговый shortlist.
-7. LLM предлагает response/action.
-8. Action валидируется.
-9. UI показывает preview.
-10. Пользователь подтверждает.
-11. ActionExecutor вызывает MusicBee API.
+2. История чата и текущий MusicBee context передаются модели.
+3. Модель классифицирует задачу и планирует работу оркестратора.
+4. Оркестратор выполняет read-only retrieval/tools и возвращает summaries/candidates.
+5. Модель может запросить дополнительный read-only шаг.
+6. CandidateRanker и валидатор проверяют итоговый shortlist/action.
+7. Модель предлагает response/action.
+8. UI показывает preview для write actions.
+9. Пользователь подтверждает.
+10. ActionExecutor вызывает MusicBee API.
 
 ## Safety architecture
 
@@ -372,27 +351,13 @@ LLM получает не "сырые" тысячи треков, а уже ра
 - action history;
 - optional undo для plugin-owned действий.
 
-## Privacy architecture
+## External lookup architecture
 
-### StrictLocal
-
-- только локальный LLM endpoint;
-- не использовать external info;
-- не отправлять file paths;
-- не отправлять расширенную историю прослушивания.
-
-### MetadataOnly
-
-- можно использовать online LLM;
-- отправлять только metadata;
-- file paths заменяются на track IDs;
-- listening history ограничивается агрегатами.
-
-### FullOnline
-
-- можно отправлять более широкий контекст;
-- все равно избегать file paths, если нет явной необходимости;
-- external recommendations показываются отдельно от локальных треков.
+- Модель может запросить только явные read-only internet tools.
+- `lookup_listenbrainz_similar_artists` используется для похожих исполнителей.
+- `lookup_wikipedia` используется для биографий, истории и внешних фактов.
+- Локальные file paths не отправляются модели.
+- Write actions всегда проходят через preview и подтверждение пользователя.
 
 ## Что уже реализовано
 
@@ -405,7 +370,7 @@ LLM получает не "сырые" тысячи треков, а уже ра
 - Basic similarity scoring.
 - Action preview.
 - Confirmed actions.
-- Small local model mode.
+- Model-directed orchestration workflow.
 - JSON repair pass.
 
 ## Что нужно спроектировать и реализовать следующим

@@ -102,6 +102,7 @@ namespace MusicBeePlugin
     public class AiChatResponse
     {
         public string Message;
+        public string ChatTitle;
         public List<AiAction> Actions = new List<AiAction>();
         public List<ToolRequest> ToolRequests = new List<ToolRequest>();
     }
@@ -117,7 +118,11 @@ namespace MusicBeePlugin
     {
         public string Type;
         public bool RequiresConfirmation = true;
+        public bool AllowVersions;
+        public int TargetDurationSeconds;
         public string Title;
+        public string PlaylistUrl;
+        public string PlaylistName;
         public List<string> TrackIds = new List<string>();
         public string Explanation;
     }
@@ -127,6 +132,7 @@ namespace MusicBeePlugin
         public AiAction Action;
         public List<TrackInfo> Tracks = new List<TrackInfo>();
         public string ValidationError;
+        public int TargetDurationSeconds;
 
         public bool IsValid
         {
@@ -149,26 +155,81 @@ namespace MusicBeePlugin
 
     public class SearchIntent
     {
+        public string Task;
+        public string SelectionMode;
         public bool Similar;
         public bool Calmer;
         public bool Energetic;
         public bool ExcludeCurrentArtist;
+        public bool DiverseArtists;
+        public bool DiverseAlbums;
+        public bool DeduplicateTracks = true;
+        public bool AllowVersions;
+        public bool WantsOnlyLocal;
+        public List<string> ExcludedArtists = new List<string>();
+        public List<string> BoostArtists = new List<string>();
+        public List<string> ExcludedAlbums = new List<string>();
+        public int MaxTracksPerArtist;
+        public int MaxTracksPerAlbum;
         public int TargetDurationSeconds;
+        public int RequestedTrackCount;
         public int MaxTracks = 60;
         public string QueryText;
+        public string RetrievalQuery;
+        public string TargetPlaylistName;
+        public string PlaylistOperation;
+        public string RankingMode;
+        public string SourceLanguage;
+        public string TurnKind;
+        public string UserGoal;
+        public List<string> OrchestrationPlan = new List<string>();
+        public double Confidence;
+        public bool WasLlmEnhanced;
+
+        public SearchIntent Clone()
+        {
+            SearchIntent clone = new SearchIntent();
+            clone.Task = Task;
+            clone.SelectionMode = SelectionMode;
+            clone.Similar = Similar;
+            clone.Calmer = Calmer;
+            clone.Energetic = Energetic;
+            clone.ExcludeCurrentArtist = ExcludeCurrentArtist;
+            clone.DiverseArtists = DiverseArtists;
+            clone.DiverseAlbums = DiverseAlbums;
+            clone.DeduplicateTracks = DeduplicateTracks;
+            clone.AllowVersions = AllowVersions;
+            clone.WantsOnlyLocal = WantsOnlyLocal;
+            clone.ExcludedArtists = new List<string>(ExcludedArtists);
+            clone.BoostArtists = new List<string>(BoostArtists);
+            clone.ExcludedAlbums = new List<string>(ExcludedAlbums);
+            clone.MaxTracksPerArtist = MaxTracksPerArtist;
+            clone.MaxTracksPerAlbum = MaxTracksPerAlbum;
+            clone.TargetDurationSeconds = TargetDurationSeconds;
+            clone.RequestedTrackCount = RequestedTrackCount;
+            clone.MaxTracks = MaxTracks;
+            clone.QueryText = QueryText;
+            clone.RetrievalQuery = RetrievalQuery;
+            clone.TargetPlaylistName = TargetPlaylistName;
+            clone.PlaylistOperation = PlaylistOperation;
+            clone.RankingMode = RankingMode;
+            clone.SourceLanguage = SourceLanguage;
+            clone.TurnKind = TurnKind;
+            clone.UserGoal = UserGoal;
+            clone.OrchestrationPlan = new List<string>(OrchestrationPlan);
+            clone.Confidence = Confidence;
+            clone.WasLlmEnhanced = WasLlmEnhanced;
+            return clone;
+        }
     }
 
     public class AgentResult
     {
         public string Message;
+        public string ChatTitle;
         public PendingAction PendingAction;
         public string Error;
+        public List<string> OrchestratorTrace = new List<string>();
     }
 
-    public enum PrivacyMode
-    {
-        StrictLocal,
-        MetadataOnly,
-        FullOnline
-    }
 }

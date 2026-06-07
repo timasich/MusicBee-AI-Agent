@@ -9,11 +9,8 @@ namespace MusicBeePlugin
         private readonly TextBox baseUrl;
         private readonly TextBox apiKey;
         private readonly TextBox model;
-        private readonly NumericUpDown temperature;
         private readonly NumericUpDown maxTokens;
         private readonly NumericUpDown timeout;
-        private readonly ComboBox privacyMode;
-        private readonly CheckBox smallLocalModelMode;
 
         public PluginSettings Settings { get; private set; }
 
@@ -23,7 +20,7 @@ namespace MusicBeePlugin
 
             Text = "MusicBee AI Agent Settings";
             Width = 520;
-            Height = 370;
+            Height = 260;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -36,32 +33,8 @@ namespace MusicBeePlugin
             apiKey = AddTextBox("API Key", Settings.ApiKey, labelWidth, ref top);
             apiKey.PasswordChar = '*';
             model = AddTextBox("Model", Settings.Model, labelWidth, ref top);
-            temperature = AddNumber("Temperature", 0, 2, 1, (decimal)Settings.Temperature, labelWidth, ref top);
             maxTokens = AddNumber("Max tokens", 1, 1000000, 0, Settings.MaxTokens, labelWidth, ref top);
             timeout = AddNumber("Timeout seconds", 5, 300, 0, Settings.RequestTimeoutSeconds, labelWidth, ref top);
-
-            Label privacyLabel = AddLabel("Privacy mode", labelWidth, top);
-            privacyMode = new ComboBox();
-            privacyMode.DropDownStyle = ComboBoxStyle.DropDownList;
-            privacyMode.Left = labelWidth + 20;
-            privacyMode.Top = top - 3;
-            privacyMode.Width = 320;
-            privacyMode.Items.Add(PrivacyMode.StrictLocal.ToString());
-            privacyMode.Items.Add(PrivacyMode.MetadataOnly.ToString());
-            privacyMode.Items.Add(PrivacyMode.FullOnline.ToString());
-            privacyMode.SelectedItem = Settings.PrivacyMode.ToString();
-            Controls.Add(privacyLabel);
-            Controls.Add(privacyMode);
-            top += 34;
-
-            smallLocalModelMode = new CheckBox();
-            smallLocalModelMode.Text = "Small local model mode";
-            smallLocalModelMode.Left = labelWidth + 20;
-            smallLocalModelMode.Top = top - 2;
-            smallLocalModelMode.Width = 320;
-            smallLocalModelMode.Checked = Settings.SmallLocalModelMode;
-            Controls.Add(smallLocalModelMode);
-            top += 34;
 
             Button ok = new Button();
             ok.Text = "OK";
@@ -130,11 +103,8 @@ namespace MusicBeePlugin
             Settings.BaseUrl = baseUrl.Text.Trim();
             Settings.ApiKey = apiKey.Text;
             Settings.Model = model.Text.Trim();
-            Settings.Temperature = (double)temperature.Value;
             Settings.MaxTokens = (int)maxTokens.Value;
             Settings.RequestTimeoutSeconds = (int)timeout.Value;
-            Settings.PrivacyMode = (PrivacyMode)Enum.Parse(typeof(PrivacyMode), Convert.ToString(privacyMode.SelectedItem));
-            Settings.SmallLocalModelMode = smallLocalModelMode.Checked;
             DialogResult = DialogResult.OK;
             Close();
         }
@@ -150,11 +120,9 @@ namespace MusicBeePlugin
             copy.BaseUrl = source.BaseUrl;
             copy.ApiKey = source.ApiKey;
             copy.Model = source.Model;
-            copy.Temperature = source.Temperature;
             copy.MaxTokens = source.MaxTokens;
-            copy.PrivacyMode = source.PrivacyMode;
             copy.RequestTimeoutSeconds = source.RequestTimeoutSeconds;
-            copy.SmallLocalModelMode = source.SmallLocalModelMode;
+            copy.DockPanelTarget = source.DockPanelTarget;
             return copy;
         }
     }

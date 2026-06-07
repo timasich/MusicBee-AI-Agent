@@ -21,7 +21,7 @@ Working:
 - Create playlist.
 - Queue next / queue last.
 - Play now.
-- Small local model mode.
+- Model-directed orchestration workflow.
 - JSON repair pass.
 - Initial SQLite-backed library index foundation.
 
@@ -32,7 +32,7 @@ Not finished:
 - AI-owned playlist registry.
 - Unit tests.
 - Release packaging.
-- Dockable MusicBee panel.
+- Dockable MusicBee panel UI direction.
 
 ## Requirements
 
@@ -78,7 +78,7 @@ Settings:
 - Base URL: `http://localhost:1234/v1`
 - API Key: empty
 - Model: model id shown in LM Studio
-- Small local model mode: enabled for small local models
+- Max tokens: choose enough for JSON response and short candidate lists
 
 For LAN testing, use the host IP:
 

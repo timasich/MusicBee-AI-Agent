@@ -13,7 +13,7 @@
 - работает базовый поиск по библиотеке;
 - создается плейлист после preview и подтверждения;
 - можно добавлять выбранные треки в очередь;
-- есть Small local model mode;
+- есть model-directed orchestration workflow;
 - есть JSON repair pass.
 
 Главное ограничение текущего MVP:
@@ -51,7 +51,7 @@
 - [x] Queue last.
 - [x] Queue next.
 - [x] Play now.
-- [x] Small local model mode.
+- [x] Model-directed orchestration workflow.
 - [x] JSON repair pass.
 - [x] README.
 - [x] Manual smoke-test checklist.
@@ -278,8 +278,7 @@
 ### До 500 треков
 
 - [x] можно сканировать весь индекс;
-- [x] candidate budget: 20-40 для strong model;
-- [x] candidate budget: 8-12 для small model.
+- [x] candidate budget: 20-40.
 
 ### 500-5000 треков
 
@@ -320,15 +319,7 @@
 - [x] `ActionValidator`;
 - [ ] `ActionExecutor`.
 
-Small local model mode:
-
-- [x] короткий prompt;
-- [x] меньше candidates;
-- [x] tool loop отключен;
-- [ ] больше локальных deterministic decisions;
-- [ ] local fallback, если JSON repair не сработал.
-
-Strong model mode:
+Model-directed workflow:
 
 - [x] один read-only tool loop;
 - [ ] несколько read-only итераций;
@@ -355,7 +346,7 @@ Strong model mode:
 - [ ] action history;
 - [ ] audit log;
 - [ ] optional undo for plugin-owned actions;
-- [ ] strict privacy enforcement.
+- [ ] external tool audit log.
 
 ## Этап 12. UI v2
 
@@ -377,7 +368,7 @@ Strong model mode:
 - [ ] error details panel;
 - [ ] copy logs button;
 - [ ] provider test button;
-- [ ] dockable panel.
+- [ ] dockable panel, if this UI direction returns.
 
 ## Этап 13. Testing
 
@@ -397,7 +388,6 @@ Strong model mode:
 
 Модели для проверки:
 
-- [ ] Gemma small local;
 - [ ] Qwen local;
 - [ ] Llama local;
 - [ ] сильная online OpenAI-compatible model.
@@ -435,3 +425,11 @@ Strong model mode:
 11. Разделить AgentController на planner/parser/validator/executor.
 12. Добавить unit tests для parser/validator/ranker.
 13. Только после этого расширять сценарии агента и UI.
+# Current implementation note: hybrid IntentParser
+
+Status: done.
+
+- `IntentParser` now combines deterministic local rules with an optional LLM intent extraction pass.
+- The LLM pass returns only compact intent JSON and cannot choose tracks or execute actions.
+- `RetrievalQuery` is used by local indexed search when available, improving multilingual and mixed-language requests.
+- Details and manual test ideas are documented in `docs/intent-parser.md`.

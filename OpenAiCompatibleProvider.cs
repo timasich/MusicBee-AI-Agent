@@ -4,16 +4,19 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Text;
+using System.Threading;
 
 namespace MusicBeePlugin
 {
     public interface IAiProvider
     {
         string SendChat(string systemPrompt, string userPrompt);
+        string SendChat(string systemPrompt, string userPrompt, CancellationToken cancellationToken);
     }
 
     public class OpenAiCompatibleProvider : IAiProvider
     {
+        private const double AgentTemperature = 0.2;
         private readonly PluginSettings settings;
 
         public OpenAiCompatibleProvider(PluginSettings settings)
@@ -23,6 +26,11 @@ namespace MusicBeePlugin
 
         public string SendChat(string systemPrompt, string userPrompt)
         {
+            return SendChat(systemPrompt, userPrompt, CancellationToken.None);
+        }
+
+        public string SendChat(string systemPrompt, string userPrompt, CancellationToken cancellationToken)
+        {
             string baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
             if (baseUrl.Length == 0)
             {
@@ -31,7 +39,7 @@ namespace MusicBeePlugin
 
             Hashtable request = new Hashtable();
             request["model"] = settings.Model;
-            request["temperature"] = settings.Temperature;
+            request["temperature"] = AgentTemperature;
             request["max_tokens"] = settings.MaxTokens;
 
             ArrayList messages = new ArrayList();
@@ -51,6 +59,8 @@ namespace MusicBeePlugin
                 webRequest.Headers["Authorization"] = "Bearer " + settings.ApiKey;
             }
 
+            using (cancellationToken.Register(delegate { try { webRequest.Abort(); } catch { } }))
+            {
             using (Stream stream = webRequest.GetRequestStream())
             {
                 stream.Write(body, 0, body.Length);
@@ -62,6 +72,7 @@ namespace MusicBeePlugin
             {
                 string json = reader.ReadToEnd();
                 return ExtractMessageContent(json);
+            }
             }
         }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Threading;
 using System.Windows.Forms;
@@ -14,7 +15,9 @@ namespace MusicBeePlugin
         private MusicBeeApiAdapter musicBee;
         private LibraryIndexingService indexingService;
         private ChatForm chatForm;
+        private AgentChatControl dockChatPanel;
         private string pluginDataPath;
+        private bool menusRegistered;
 
         public PluginInfo Initialise(IntPtr apiInterfacePtr)
         {
@@ -42,6 +45,7 @@ namespace MusicBeePlugin
             about.ReceiveNotifications = ReceiveNotificationFlags.PlayerEvents;
             about.ConfigurationPanelHeight = 0;
 
+            RegisterMenus();
             return about;
         }
 
@@ -76,6 +80,19 @@ namespace MusicBeePlugin
                 chatForm.Close();
                 chatForm = null;
             }
+
+            if (dockChatPanel != null)
+            {
+                try
+                {
+                    mbApiInterface.MB_RemovePanel(dockChatPanel);
+                }
+                catch
+                {
+                }
+                dockChatPanel.Dispose();
+                dockChatPanel = null;
+            }
         }
 
         public void Uninstall()
@@ -86,10 +103,42 @@ namespace MusicBeePlugin
         {
             if (type == NotificationType.PluginStartup)
             {
+                RegisterMenus();
+                StartInitialIndexing();
+            }
+        }
+
+        private void RegisterMenus()
+        {
+            if (menusRegistered || mbApiInterface.MB_AddMenuItem == null)
+            {
+                return;
+            }
+
+            try
+            {
                 mbApiInterface.MB_AddMenuItem("mnuTools/MusicBee AI Agent - Open Chat", "", OpenChatFromMenu);
                 mbApiInterface.MB_AddMenuItem("mnuTools/MusicBee AI Agent - Settings", "", OpenSettingsFromMenu);
                 mbApiInterface.MB_AddMenuItem("mnuTools/MusicBee AI Agent - Rebuild Library Index", "", RebuildIndexFromMenu);
-                StartInitialIndexing();
+                menusRegistered = true;
+            }
+            catch (Exception ex)
+            {
+                LogPlugin("Menu registration failed: " + ex);
+            }
+        }
+
+        private void LogPlugin(string message)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(pluginDataPath))
+                {
+                    File.AppendAllText(Path.Combine(pluginDataPath, "plugin.log"), DateTime.Now.ToString("s") + " " + message + Environment.NewLine);
+                }
+            }
+            catch
+            {
             }
         }
 
@@ -101,6 +150,11 @@ namespace MusicBeePlugin
         private void OpenSettingsFromMenu(object sender, EventArgs e)
         {
             Configure(IntPtr.Zero);
+        }
+
+        private void OpenDockPanelFromMenu(object sender, EventArgs e)
+        {
+            ShowDockPanel();
         }
 
         private void RebuildIndexFromMenu(object sender, EventArgs e)
@@ -174,6 +228,18 @@ namespace MusicBeePlugin
                 chatForm = null;
                 MessageBox.Show("Settings saved. Reopen MusicBee AI Agent chat to use the new provider/model.", "MusicBee AI Agent");
             }
+            if (dockChatPanel != null && !dockChatPanel.IsDisposed)
+            {
+                try
+                {
+                    mbApiInterface.MB_RemovePanel(dockChatPanel);
+                }
+                catch
+                {
+                }
+                dockChatPanel.Dispose();
+                dockChatPanel = null;
+            }
         }
 
         private void ShowChat()
@@ -182,12 +248,63 @@ namespace MusicBeePlugin
             {
                 IAiProvider provider = new OpenAiCompatibleProvider(settings);
                 AgentController agent = new AgentController(musicBee, provider, settings, pluginDataPath);
-                chatForm = new ChatForm(agent, settings);
+                chatForm = new ChatForm(agent, settings, CreateTheme());
                 chatForm.FormClosed += delegate { chatForm = null; };
             }
 
             chatForm.Show();
             chatForm.Activate();
+        }
+
+        private void ShowDockPanel()
+        {
+            if (dockChatPanel == null || dockChatPanel.IsDisposed)
+            {
+                IAiProvider provider = new OpenAiCompatibleProvider(settings);
+                AgentController agent = new AgentController(musicBee, provider, settings, pluginDataPath);
+                dockChatPanel = new AgentChatControl(agent, settings, CreateTheme());
+                mbApiInterface.MB_AddPanel(dockChatPanel, ResolveDockPanelTarget());
+                dockChatPanel.Show();
+            }
+            mbApiInterface.MB_RefreshPanels();
+        }
+
+        private PluginPanelDock ResolveDockPanelTarget()
+        {
+            try
+            {
+                return (PluginPanelDock)Enum.Parse(typeof(PluginPanelDock), settings.DockPanelTarget);
+            }
+            catch
+            {
+                return PluginPanelDock.MainPanel;
+            }
+        }
+
+        private MusicBeeTheme CreateTheme()
+        {
+            MusicBeeTheme theme = new MusicBeeTheme();
+            try
+            {
+                theme.BackColor = ReadSkinColor(SkinElement.SkinSubPanel, ElementComponent.ComponentBackground, SystemColors.Control);
+                theme.ForeColor = ReadSkinColor(SkinElement.SkinInputPanelLabel, ElementComponent.ComponentForeground, SystemColors.ControlText);
+                theme.InputBackColor = ReadSkinColor(SkinElement.SkinInputControl, ElementComponent.ComponentBackground, SystemColors.Window);
+                theme.InputForeColor = ReadSkinColor(SkinElement.SkinInputControl, ElementComponent.ComponentForeground, SystemColors.WindowText);
+            }
+            catch
+            {
+            }
+            return theme;
+        }
+
+        private Color ReadSkinColor(SkinElement element, ElementComponent component, Color fallback)
+        {
+            int argb = mbApiInterface.Setting_GetSkinElementColour(element, ElementState.ElementStateDefault, component);
+            if (argb == 0)
+            {
+                return fallback;
+            }
+            return Color.FromArgb(argb);
         }
     }
 }

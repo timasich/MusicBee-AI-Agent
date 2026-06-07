@@ -53,11 +53,10 @@ If requests still use the previous model:
 
 ## JSON parser errors
 
-Small local models can return malformed JSON.
+Some local models can return malformed JSON.
 
 Mitigation:
 
-- enable Small local model mode;
 - reduce Max tokens for small models;
 - use a stronger instruction-following model;
 - check `agent.log` in plugin storage.

@@ -20,7 +20,7 @@ Expected:
 Steps:
 
 1. Open `Tools -> MusicBee AI Agent - Settings`.
-2. Set Base URL, Model, and Small local model mode.
+2. Set Base URL, Model, Max tokens, and Timeout.
 3. Click OK.
 4. Open settings again.
 
@@ -97,19 +97,18 @@ Expected:
 - It is not zero bytes.
 - `index.log` contains `Index rebuild completed`.
 
-## 8. Small local model mode
+## 8. First chat title
 
 Steps:
 
-1. Enable Small local model mode.
-2. Use a small local model in LM Studio.
-3. Ask current-track and playlist requests.
+1. Click `New Chat`.
+2. Send a specific first request, for example a playlist request for a genre or artist.
+3. Wait for the first assistant response.
 
 Expected:
 
-- Prompt is shorter.
-- Tool loop is not used.
-- JSON errors are less frequent.
+- The chat title changes from the default title to a concise title related to the request.
+- The title is visible in the current chat header and in the chat list.
 
 ## 9. Manual index rebuild
 
@@ -168,3 +167,17 @@ Expected:
 - Similar search uses index-backed candidates.
 - Duration request can return more candidates than a small non-duration request.
 - If index search fails, `search.log` contains fallback details and the old MusicBee API search still works.
+
+## 13. Diversity and deduplication
+
+Steps:
+
+1. Rebuild the library index after adding test music from multiple artists.
+2. Ask: `Составь плейлист нескольких исполнителей в жанрах Industrial/Heavy metal на 1 час. Хочу разные песни разных альбомов разных исполнителей без повторов`.
+3. Inspect the preview before confirming.
+
+Expected:
+
+- Preview should include multiple artists when the local library has them.
+- Repeated versions of the same song should be reduced.
+- If too few matching artists exist locally, the assistant message should mention that diversity is limited by the local shortlist.

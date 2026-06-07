@@ -95,4 +95,18 @@ namespace MusicBeePlugin
                 "; generatedAt=" + GeneratedAt;
         }
     }
+
+    public class LibraryFacetValue
+    {
+        public string Value;
+        public int Count;
+    }
+
+    public class ExternalArtistRecommendation
+    {
+        public string ArtistName;
+        public string ArtistMbid;
+        public int ListenCount;
+        public string Source;
+    }
 }

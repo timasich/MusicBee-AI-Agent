@@ -11,6 +11,8 @@
     <RootNamespace>MusicBeePlugin</RootNamespace>
     <AssemblyName>MB_AI_Agent</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <LangVersion>8.0</LangVersion>
+    <Nullable>disable</Nullable>
     <FileAlignment>512</FileAlignment>
     <FileUpgradeFlags>
     </FileUpgradeFlags>
@@ -88,14 +90,17 @@
     <Compile Include="AiOwnedPlaylistRegistry.cs" />
     <Compile Include="AiResponseParser.cs" />
     <Compile Include="CandidateRanker.cs" />
+    <Compile Include="ChatListForm.cs" />
     <Compile Include="ChatForm.cs" />
     <Compile Include="DomainModels.cs" />
+    <Compile Include="ExternalLookupService.cs" />
     <Compile Include="LibraryIndex.cs" />
     <Compile Include="LibraryIndexingService.cs" />
     <Compile Include="LibrarySearchService.cs" />
     <Compile Include="Models.cs" />
     <Compile Include="MusicBeeApiAdapter.cs" />
     <Compile Include="NormalizationService.cs" />
+    <Compile Include="OrchestratorSupport.cs" />
     <Compile Include="MusicBeeInterface.cs" />
     <Compile Include="OpenAiCompatibleProvider.cs" />
     <Compile Include="Plugin.cs" />
