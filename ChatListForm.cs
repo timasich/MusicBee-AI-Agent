@@ -11,6 +11,7 @@ namespace MusicBeePlugin
         private readonly ListView list;
         private readonly Button openButton;
         private readonly Button renameButton;
+        private readonly Button deleteButton;
         private readonly Button cancelButton;
 
         public string SelectedConversationId;
@@ -64,6 +65,14 @@ namespace MusicBeePlugin
             renameButton.Anchor = AnchorStyles.Right | AnchorStyles.Bottom;
             renameButton.Click += delegate { RenameSelected(); };
 
+            deleteButton = new Button();
+            deleteButton.Text = "Delete";
+            deleteButton.Left = 230;
+            deleteButton.Top = 8;
+            deleteButton.Width = 82;
+            deleteButton.Anchor = AnchorStyles.Right | AnchorStyles.Bottom;
+            deleteButton.Click += delegate { DeleteSelected(); };
+
             cancelButton = new Button();
             cancelButton.Text = "Cancel";
             cancelButton.Left = 500;
@@ -72,6 +81,7 @@ namespace MusicBeePlugin
             cancelButton.Anchor = AnchorStyles.Right | AnchorStyles.Bottom;
             cancelButton.DialogResult = DialogResult.Cancel;
 
+            bottom.Controls.Add(deleteButton);
             bottom.Controls.Add(renameButton);
             bottom.Controls.Add(openButton);
             bottom.Controls.Add(cancelButton);
@@ -80,10 +90,48 @@ namespace MusicBeePlugin
                 cancelButton.Left = bottom.Width - cancelButton.Width - 12;
                 openButton.Left = cancelButton.Left - openButton.Width - 8;
                 renameButton.Left = openButton.Left - renameButton.Width - 8;
+                deleteButton.Left = renameButton.Left - deleteButton.Width - 8;
             };
 
             Controls.Add(list);
             Controls.Add(bottom);
+        }
+
+        private void DeleteSelected()
+        {
+            if (list.SelectedItems.Count == 0)
+            {
+                return;
+            }
+
+            ListViewItem selected = list.SelectedItems[0];
+            ConversationSummary conversation = selected.Tag as ConversationSummary;
+            if (conversation == null)
+            {
+                return;
+            }
+
+            DialogResult confirm = MessageBox.Show(this, "Delete chat '" + conversation.Title + "'?", "MusicBee AI Agent", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (confirm != DialogResult.Yes)
+            {
+                return;
+            }
+
+            bool wasActive = string.Equals(conversation.Id, agent.ActiveConversationId, StringComparison.OrdinalIgnoreCase);
+            if (!agent.DeleteConversation(conversation.Id))
+            {
+                MessageBox.Show(this, "Chat could not be deleted.", "MusicBee AI Agent");
+                return;
+            }
+
+            list.Items.Remove(selected);
+            if (wasActive)
+            {
+                SelectedConversationId = agent.ActiveConversationId;
+                SelectedConversationTitle = agent.GetConversationTitle(SelectedConversationId);
+                DialogResult = DialogResult.OK;
+                Close();
+            }
         }
 
         private void RenameSelected()

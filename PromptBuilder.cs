@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -19,7 +20,7 @@ namespace MusicBeePlugin
                 "Return only valid JSON, with no markdown. " +
                 "Response schema: {\"message\":\"text\",\"chatTitle\":\"short title when requested\",\"actions\":[],\"toolRequests\":[]}. " +
                 "Action schema: {\"message\":\"text\",\"chatTitle\":\"optional\",\"actions\":[{\"type\":\"create_playlist|queue_tracks_last|queue_tracks_next|play_track_now\",\"requiresConfirmation\":true,\"title\":\"text\",\"trackIds\":[\"track_1\"],\"explanation\":\"text\"}]}. " +
-                "If more factual data is needed, return {\"message\":\"text\",\"toolRequests\":[{\"name\":\"get_now_playing|search_library|find_similar_tracks_basic|get_current_queue|get_library_facet|get_artist_profile|lookup_listenbrainz_similar_artists|lookup_wikipedia\",\"query\":\"text\",\"limit\":40}],\"actions\":[]}. " +
+                "If more factual data is needed, return {\"message\":\"text\",\"toolRequests\":[{\"name\":\"get_now_playing|search_library|find_similar_tracks_basic|get_current_queue|get_library_facet|get_artist_profile|lookup_listenbrainz_similar_artists|lookup_wikipedia\",\"query\":\"text\",\"limit\":80}],\"actions\":[]}. Use limit up to 160 when the user asks for dozens of tracks. " +
                 "For get_library_facet, query must be one of: tracks, genres, artists, years, custom_fields. Use 'facet: filter text' when filtering a facet, for example 'genres: metal' or 'tracks: industrial metal'. " +
                 "For similar artist requests, request lookup_listenbrainz_similar_artists with the seed artist name. " +
                 "For artist biography/library questions, request get_artist_profile first. If the user asks for more detailed background/history or outside-library facts, request lookup_wikipedia. " +
@@ -89,10 +90,7 @@ namespace MusicBeePlugin
             AppendTrack(builder, nowPlaying);
             builder.AppendLine();
             builder.AppendLine("Candidate tracks. Choose only these trackIds for actions:");
-            foreach (TrackInfo track in candidates)
-            {
-                AppendTrack(builder, track);
-            }
+            AppendTrackGroups(builder, candidates);
             if (!string.IsNullOrEmpty(toolResults))
             {
                 builder.AppendLine();
@@ -149,13 +147,32 @@ namespace MusicBeePlugin
             {
                 builder.Append("; avoid current artist if possible");
             }
+            if (intent.ExcludeInstrumental)
+            {
+                builder.Append("; exclude instrumental tracks");
+            }
             if (intent.RequestedTrackCount > 0)
             {
                 builder.Append("; requestedTrackCount=").Append(intent.RequestedTrackCount);
             }
+            if (intent.RequestedTrackCountMin > 0 || intent.RequestedTrackCountMax > 0)
+            {
+                int min = intent.RequestedTrackCountMin <= 0 ? intent.RequestedTrackCountMax : intent.RequestedTrackCountMin;
+                int max = intent.RequestedTrackCountMax <= 0 ? intent.RequestedTrackCountMin : intent.RequestedTrackCountMax;
+                builder.Append("; requestedTrackCountRange=").Append(min).Append("-").Append(max);
+                builder.Append("; choose at least ").Append(min).Append(" and at most ").Append(max).Append(" trackIds");
+            }
             if (intent.TargetDurationSeconds > 0)
             {
                 builder.Append("; targetDurationSeconds=").Append(intent.TargetDurationSeconds);
+            }
+            if (intent.ExcludedArtists.Count > 0)
+            {
+                builder.Append("; excludedArtists=").Append(JoinList(intent.ExcludedArtists));
+            }
+            if (intent.ExcludedAlbums.Count > 0)
+            {
+                builder.Append("; excludedAlbums=").Append(JoinList(intent.ExcludedAlbums));
             }
             if (!string.IsNullOrWhiteSpace(intent.RankingMode) && intent.RankingMode != "normal")
             {
@@ -171,6 +188,25 @@ namespace MusicBeePlugin
             }
             builder.Append("; candidate artists=").Append(CountDistinctArtists(candidates));
             builder.AppendLine();
+        }
+
+        private static string JoinList(List<string> values)
+        {
+            if (values == null || values.Count == 0)
+            {
+                return "";
+            }
+
+            StringBuilder builder = new StringBuilder();
+            for (int i = 0; i < values.Count; i++)
+            {
+                if (i > 0)
+                {
+                    builder.Append(", ");
+                }
+                builder.Append(values[i]);
+            }
+            return builder.ToString();
         }
 
         private static void AppendLastPlan(StringBuilder builder, LastPlanContext lastPlan)
@@ -229,6 +265,164 @@ namespace MusicBeePlugin
             builder.Append("; skipCount=").Append(track.SkipCount);
             builder.Append("; reason=").Append(track.ScoreReason);
             builder.AppendLine();
+        }
+
+        public void AppendTrackGroups(StringBuilder builder, List<TrackInfo> tracks)
+        {
+            if (tracks == null || tracks.Count == 0)
+            {
+                builder.AppendLine("- none");
+                return;
+            }
+
+            List<TrackGroup> groups = BuildGroups(tracks);
+            for (int i = 0; i < groups.Count; i++)
+            {
+                TrackGroup group = groups[i];
+                string commonGenre = CommonValue(group.Tracks, "genre");
+                string commonYear = CommonValue(group.Tracks, "year");
+                string commonMood = CommonValue(group.Tracks, "mood");
+
+                builder.Append("Group ").Append(i + 1);
+                builder.Append(": artist=").Append(group.Artist);
+                builder.Append("; album=").Append(group.Album);
+                if (!string.IsNullOrEmpty(group.AlbumArtist) && !Same(group.AlbumArtist, group.Artist))
+                {
+                    builder.Append("; albumArtist=").Append(group.AlbumArtist);
+                }
+                AppendCommon(builder, "genre", commonGenre);
+                AppendCommon(builder, "year", commonYear);
+                AppendCommon(builder, "mood", commonMood);
+                builder.AppendLine();
+
+                for (int j = 0; j < group.Tracks.Count; j++)
+                {
+                    AppendCompactTrack(builder, group.Tracks[j], commonGenre, commonYear, commonMood);
+                }
+            }
+        }
+
+        private static List<TrackGroup> BuildGroups(List<TrackInfo> tracks)
+        {
+            List<TrackGroup> groups = new List<TrackGroup>();
+            Dictionary<string, TrackGroup> byKey = new Dictionary<string, TrackGroup>();
+            foreach (TrackInfo track in tracks)
+            {
+                if (track == null)
+                {
+                    continue;
+                }
+
+                string key = GroupKey(track);
+                TrackGroup group;
+                if (!byKey.TryGetValue(key, out group))
+                {
+                    group = new TrackGroup();
+                    group.Artist = track.Artist;
+                    group.Album = track.Album;
+                    group.AlbumArtist = track.AlbumArtist;
+                    byKey[key] = group;
+                    groups.Add(group);
+                }
+                group.Tracks.Add(track);
+            }
+            return groups;
+        }
+
+        private static string GroupKey(TrackInfo track)
+        {
+            return NormalizationService.ArtistKey(track == null ? "" : track.Artist) + "|" +
+                NormalizationService.NormalizeKey(track == null ? "" : track.Album) + "|" +
+                NormalizationService.ArtistKey(track == null ? "" : track.AlbumArtist);
+        }
+
+        private static string CommonValue(List<TrackInfo> tracks, string field)
+        {
+            string value = null;
+            foreach (TrackInfo track in tracks ?? new List<TrackInfo>())
+            {
+                string current = Field(track, field);
+                if (string.IsNullOrEmpty(current))
+                {
+                    return "";
+                }
+                if (value == null)
+                {
+                    value = current;
+                    continue;
+                }
+                if (!Same(value, current))
+                {
+                    return "";
+                }
+            }
+            return value ?? "";
+        }
+
+        private static string Field(TrackInfo track, string field)
+        {
+            if (track == null)
+            {
+                return "";
+            }
+            if (field == "genre") return track.Genre;
+            if (field == "year") return track.Year;
+            if (field == "mood") return track.Mood;
+            return "";
+        }
+
+        private static void AppendCommon(StringBuilder builder, string name, string value)
+        {
+            if (!string.IsNullOrEmpty(value))
+            {
+                builder.Append("; ").Append(name).Append("=").Append(value);
+            }
+        }
+
+        private static void AppendCompactTrack(StringBuilder builder, TrackInfo track, string commonGenre, string commonYear, string commonMood)
+        {
+            builder.Append("  - id=").Append(track.Id);
+            builder.Append("; title=").Append(track.Title);
+            builder.Append("; duration=").Append(track.Duration);
+            builder.Append("; score=").Append(track.Score);
+            AppendIfDifferent(builder, "genre", track.Genre, commonGenre);
+            AppendIfDifferent(builder, "year", track.Year, commonYear);
+            AppendIfDifferent(builder, "mood", track.Mood, commonMood);
+            AppendIfPresent(builder, "bpm", track.Bpm);
+            AppendIfPresent(builder, "rating", track.Rating);
+            AppendIfPresent(builder, "playCount", track.PlayCount);
+            AppendIfPresent(builder, "skipCount", track.SkipCount);
+            AppendIfPresent(builder, "reason", track.ScoreReason);
+            builder.AppendLine();
+        }
+
+        private static void AppendIfDifferent(StringBuilder builder, string name, string value, string commonValue)
+        {
+            if (!string.IsNullOrEmpty(value) && !Same(value, commonValue))
+            {
+                builder.Append("; ").Append(name).Append("=").Append(value);
+            }
+        }
+
+        private static void AppendIfPresent(StringBuilder builder, string name, string value)
+        {
+            if (!string.IsNullOrEmpty(value))
+            {
+                builder.Append("; ").Append(name).Append("=").Append(value);
+            }
+        }
+
+        private static bool Same(string left, string right)
+        {
+            return string.Equals((left ?? "").Trim(), (right ?? "").Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private class TrackGroup
+        {
+            public string Artist;
+            public string Album;
+            public string AlbumArtist;
+            public readonly List<TrackInfo> Tracks = new List<TrackInfo>();
         }
     }
 }

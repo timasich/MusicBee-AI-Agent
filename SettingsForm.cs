@@ -10,6 +10,7 @@ namespace MusicBeePlugin
         private readonly TextBox apiKey;
         private readonly TextBox model;
         private readonly NumericUpDown maxTokens;
+        private readonly NumericUpDown contextTokens;
         private readonly NumericUpDown timeout;
 
         public PluginSettings Settings { get; private set; }
@@ -20,7 +21,7 @@ namespace MusicBeePlugin
 
             Text = "MusicBee AI Agent Settings (Alpha)";
             Width = 520;
-            Height = 300;
+            Height = 334;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -43,6 +44,7 @@ namespace MusicBeePlugin
             apiKey.PasswordChar = '*';
             model = AddTextBox("Model", Settings.Model, labelWidth, ref top);
             maxTokens = AddNumber("Max tokens", 1, 1000000, 0, Settings.MaxTokens, labelWidth, ref top);
+            contextTokens = AddNumber("Context tokens", 1000, 1000000, 0, Settings.ContextWindowTokens, labelWidth, ref top);
             timeout = AddNumber("Timeout seconds", 5, 300, 0, Settings.RequestTimeoutSeconds, labelWidth, ref top);
 
             Button ok = new Button();
@@ -113,6 +115,7 @@ namespace MusicBeePlugin
             Settings.ApiKey = apiKey.Text;
             Settings.Model = model.Text.Trim();
             Settings.MaxTokens = (int)maxTokens.Value;
+            Settings.ContextWindowTokens = (int)contextTokens.Value;
             Settings.RequestTimeoutSeconds = (int)timeout.Value;
             DialogResult = DialogResult.OK;
             Close();
@@ -130,6 +133,7 @@ namespace MusicBeePlugin
             copy.ApiKey = source.ApiKey;
             copy.Model = source.Model;
             copy.MaxTokens = source.MaxTokens;
+            copy.ContextWindowTokens = source.ContextWindowTokens;
             copy.RequestTimeoutSeconds = source.RequestTimeoutSeconds;
             copy.DockPanelTarget = source.DockPanelTarget;
             return copy;

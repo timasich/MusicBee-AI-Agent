@@ -227,6 +227,8 @@ namespace MusicBeePlugin
             {
                 originalQuery = "";
             }
+            query = StripFilterTerms(query, intent);
+            originalQuery = StripFilterTerms(originalQuery, intent);
 
             if (intent != null && intent.Similar && nowPlaying != null)
             {
@@ -234,6 +236,58 @@ namespace MusicBeePlugin
             }
 
             return NormalizationService.Tokenize(query, originalQuery);
+        }
+
+        private static string StripFilterTerms(string query, SearchIntent intent)
+        {
+            string value = query ?? "";
+            if (intent == null || value.Length == 0)
+            {
+                return value;
+            }
+
+            for (int i = 0; i < intent.ExcludedAlbums.Count; i++)
+            {
+                value = RemovePhrase(value, intent.ExcludedAlbums[i]);
+            }
+            for (int i = 0; i < intent.ExcludedArtists.Count; i++)
+            {
+                value = RemovePhrase(value, intent.ExcludedArtists[i]);
+            }
+
+            string normalized = " " + NormalizationService.NormalizeKey(value) + " ";
+            string[] words = new string[]
+            {
+                "without", "excluding", "exclude", "except", "not from", "no",
+                "album", "albums", "record", "records", "release", "releases",
+                "artist", "artists", "performer", "performers", "band", "bands",
+                "instrumental", "instrumentals",
+                "\u0431\u0435\u0437", "\u0438\u0441\u043a\u043b\u044e\u0447\u0430\u044f", "\u0438\u0441\u043a\u043b\u044e\u0447\u0438\u0442\u044c", "\u043a\u0440\u043e\u043c\u0435",
+                "\u0430\u043b\u044c\u0431\u043e\u043c", "\u0430\u043b\u044c\u0431\u043e\u043c\u0430", "\u0430\u043b\u044c\u0431\u043e\u043c\u043e\u0432",
+                "\u0438\u0441\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c", "\u0438\u0441\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u0435\u0439",
+                "\u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442\u0430\u043b\u044c\u043d\u044b\u0445", "\u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442\u0430\u043b\u044c\u043d\u044b\u0435"
+            };
+            for (int i = 0; i < words.Length; i++)
+            {
+                normalized = normalized.Replace(" " + NormalizationService.NormalizeKey(words[i]) + " ", " ");
+            }
+            return normalized.Trim();
+        }
+
+        private static string RemovePhrase(string text, string phrase)
+        {
+            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(phrase))
+            {
+                return text ?? "";
+            }
+            string result = text;
+            int index = result.IndexOf(phrase, StringComparison.OrdinalIgnoreCase);
+            while (index >= 0)
+            {
+                result = result.Remove(index, phrase.Length);
+                index = result.IndexOf(phrase, StringComparison.OrdinalIgnoreCase);
+            }
+            return result;
         }
 
         private static bool IsRankingMode(string mode)

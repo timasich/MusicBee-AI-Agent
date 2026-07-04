@@ -10,7 +10,8 @@ namespace MusicBeePlugin
         public string BaseUrl = "http://localhost:1234/v1";
         public string ApiKey = "";
         public string Model = "local-model";
-        public int MaxTokens = 1000;
+        public int MaxTokens = 2500;
+        public int ContextWindowTokens = 8192;
         public int RequestTimeoutSeconds = 60;
         public string DockPanelTarget = "MainPanel";
 
@@ -35,6 +36,7 @@ namespace MusicBeePlugin
             settings.ApiKey = Read(root, "ApiKey", settings.ApiKey);
             settings.Model = Read(root, "Model", settings.Model);
             settings.MaxTokens = ReadInt(root, "MaxTokens", settings.MaxTokens);
+            settings.ContextWindowTokens = ReadInt(root, "ContextWindowTokens", settings.ContextWindowTokens);
             settings.RequestTimeoutSeconds = ReadInt(root, "RequestTimeoutSeconds", settings.RequestTimeoutSeconds);
             settings.DockPanelTarget = Read(root, "DockPanelTarget", settings.DockPanelTarget);
 
@@ -53,6 +55,7 @@ namespace MusicBeePlugin
             Write(doc, root, "ApiKey", ApiKey);
             Write(doc, root, "Model", Model);
             Write(doc, root, "MaxTokens", MaxTokens.ToString(CultureInfo.InvariantCulture));
+            Write(doc, root, "ContextWindowTokens", ContextWindowTokens.ToString(CultureInfo.InvariantCulture));
             Write(doc, root, "RequestTimeoutSeconds", RequestTimeoutSeconds.ToString(CultureInfo.InvariantCulture));
             Write(doc, root, "DockPanelTarget", DockPanelTarget);
 

@@ -123,7 +123,26 @@ namespace MusicBeePlugin
                 }
             }
 
-            if (intent.RequestedTrackCount > 0 && pending.Tracks.Count != intent.RequestedTrackCount)
+            int requestedMin = intent.RequestedTrackCountMin;
+            int requestedMax = intent.RequestedTrackCountMax;
+            if (requestedMin > 0 || requestedMax > 0)
+            {
+                if (requestedMin <= 0)
+                {
+                    requestedMin = requestedMax;
+                }
+                if (requestedMax <= 0)
+                {
+                    requestedMax = requestedMin;
+                }
+                if (pending.Tracks.Count < requestedMin || pending.Tracks.Count > requestedMax)
+                {
+                    pending.ValidationError = "Selected track count is outside the requested range. requestedTracksMin=" +
+                        requestedMin + ", requestedTracksMax=" + requestedMax + ", actualTracks=" + pending.Tracks.Count + ".";
+                    return;
+                }
+            }
+            else if (intent.RequestedTrackCount > 0 && pending.Tracks.Count != intent.RequestedTrackCount)
             {
                 pending.ValidationError = "Selected track count does not match the requested count. requestedTracks=" +
                     intent.RequestedTrackCount + ", actualTracks=" + pending.Tracks.Count + ".";

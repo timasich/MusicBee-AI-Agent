@@ -15,15 +15,21 @@ public class LocalHarness
             TestValidatorAllowsExplicitVersions();
             TestValidatorRejectsDurationMiss();
             TestValidatorRejectsTrackCountMiss();
+            TestValidatorAcceptsTrackCountRange();
             TestValidatorRejectsArtistLimit();
             TestIntentParserSelectionMode();
             TestIntentParserRequestedTrackCount();
+            TestIntentParserTrackCountRangeAndExcludedAlbum();
+            TestAdaptiveBudgetForLargePlaylist();
+            TestPromptBuilderCompactsCandidateGroups();
             TestParserToolRequestForListenBrainz();
             TestParserToolRequestForWikipedia();
             TestRanker();
+            TestRankerAppliesSearchFilters();
             TestDiversityAndDedup();
             TestRemixCanonicalDedup();
             TestConversationStoreNewChatResetsPlan();
+            TestConversationStoreDeleteConversation();
             TestRankingModes();
             Console.WriteLine("All local harness tests passed.");
             return 0;
@@ -147,6 +153,33 @@ public class LocalHarness
         Assert(pending.ValidationError.IndexOf("requestedTracks", StringComparison.OrdinalIgnoreCase) >= 0, "Track-count validation error was not reported.");
     }
 
+    private static void TestValidatorAcceptsTrackCountRange()
+    {
+        CandidateSet set = new CandidateSet();
+        set.Add(Track("track_1", "file://one", "Artist", "Song 1", "Album", "Rock", "4:00", 90));
+        set.Add(Track("track_2", "file://two", "Artist", "Song 2", "Album", "Rock", "4:00", 90));
+        set.Add(Track("track_3", "file://three", "Artist", "Song 3", "Album", "Rock", "4:00", 90));
+
+        AiAction action = new AiAction();
+        action.Type = "create_playlist";
+        action.RequiresConfirmation = true;
+        action.TrackIds.Add("track_1");
+        action.TrackIds.Add("track_2");
+        action.TrackIds.Add("track_3");
+
+        SearchIntent intent = new SearchIntent();
+        intent.RequestedTrackCountMin = 3;
+        intent.RequestedTrackCountMax = 4;
+
+        PendingAction pending = new ActionValidator().Validate(action, set, intent);
+        Assert(pending.IsValid, "Validator should accept track count inside requested range.");
+
+        action.TrackIds.RemoveAt(action.TrackIds.Count - 1);
+        PendingAction tooSmall = new ActionValidator().Validate(action, set, intent);
+        Assert(!tooSmall.IsValid, "Validator should reject track count below requested range.");
+        Assert(tooSmall.ValidationError.IndexOf("requestedTracksMin", StringComparison.OrdinalIgnoreCase) >= 0, "Range validation error was not reported.");
+    }
+
     private static void TestValidatorRejectsArtistLimit()
     {
         CandidateSet set = new CandidateSet();
@@ -191,6 +224,59 @@ public class LocalHarness
         Assert(intent.RequestedTrackCount == 7, "Intent parser did not preserve requestedTrackCount.");
         Assert(intent.MaxTracks == 80, "Intent parser did not keep candidate maxTracks separate.");
         Assert(intent.TargetDurationSeconds == 1440, "Intent parser did not preserve target duration.");
+    }
+
+    private static void TestIntentParserTrackCountRangeAndExcludedAlbum()
+    {
+        PluginSettings settings = new PluginSettings();
+        FakeAiProvider provider = new FakeAiProvider("{\"task\":\"create_playlist\",\"retrievalQuery\":\"Mike Shinoda\",\"maxTracks\":40,\"confidence\":0.9}");
+        IntentParser parser = new IntentParser(settings, provider);
+
+        SearchIntent intent = parser.Parse("Build a playlist of 30-40 songs by Mike Shinoda without albums Post Traumatic and without instrumental tracks.", null, new LibraryProfile());
+
+        Assert(intent.RequestedTrackCount == 0, "Intent parser should use range instead of exact count for 30-40.");
+        Assert(intent.RequestedTrackCountMin == 30, "Intent parser did not infer requested range minimum.");
+        Assert(intent.RequestedTrackCountMax == 40, "Intent parser did not infer requested range maximum.");
+        Assert(ContainsNormalized(intent.ExcludedAlbums, "Post Traumatic"), "Intent parser did not add generic excluded album hint.");
+        Assert(intent.ExcludeInstrumental, "Intent parser did not add instrumental exclusion hint.");
+        Assert(intent.MaxTracks >= 40, "Intent parser did not keep enough max tracks for requested range.");
+    }
+
+    private static void TestAdaptiveBudgetForLargePlaylist()
+    {
+        LibraryProfile profile = new LibraryProfile();
+        profile.TrackCount = 10000;
+        SearchIntent intent = new SearchIntent();
+        intent.RequestedTrackCountMin = 30;
+        intent.RequestedTrackCountMax = 40;
+
+        PluginSettings settings = new PluginSettings();
+        settings.ContextWindowTokens = 8192;
+        AdaptiveRetrievalBudget budget = AdaptiveRetrievalBudget.Create(settings, profile, intent);
+
+        Assert(budget.CandidateCount >= 160, "Adaptive budget did not expand candidates for a 30-40 track request.");
+        Assert(budget.CandidateCount <= 500, "Adaptive budget exceeded the hard prompt candidate cap.");
+        Assert(budget.ScanLimit > budget.CandidateCount, "Adaptive budget did not expand scan limit.");
+
+        PluginSettings smallContext = new PluginSettings();
+        smallContext.ContextWindowTokens = 4000;
+        AdaptiveRetrievalBudget smaller = AdaptiveRetrievalBudget.Create(smallContext, profile, intent);
+        Assert(smaller.CandidateCount < budget.CandidateCount, "Adaptive budget did not react to a smaller context window.");
+    }
+
+    private static void TestPromptBuilderCompactsCandidateGroups()
+    {
+        PromptBuilder builder = new PromptBuilder(new PluginSettings());
+        List<TrackInfo> tracks = new List<TrackInfo>();
+        tracks.Add(Track("track_1", "file://one", "Artist", "Song 1", "Shared Album", "Rock", "4:00", 90));
+        tracks.Add(Track("track_2", "file://two", "Artist", "Song 2", "Shared Album", "Rock", "3:30", 80));
+
+        string prompt = builder.BuildUserPrompt("Create playlist", null, tracks, "", null, new SearchIntent());
+
+        int albumIndex = prompt.IndexOf("; album=Shared Album");
+        Assert(prompt.IndexOf("Group 1: artist=Artist; album=Shared Album") >= 0, "Prompt builder did not write album group header.");
+        Assert(albumIndex >= 0 && prompt.IndexOf("; album=Shared Album", albumIndex + 1) < 0, "Prompt builder repeated grouped album on track rows.");
+        Assert(prompt.IndexOf("id=track_1") >= 0 && prompt.IndexOf("id=track_2") >= 0, "Prompt builder omitted track IDs in compact groups.");
     }
 
     private static void TestParserToolRequestForListenBrainz()
@@ -239,6 +325,23 @@ public class LocalHarness
         List<TrackInfo> ranked = new CandidateRanker().Rank(new TrackInfo[] { other, similar }, intent, now, 2);
         Assert(ranked.Count > 0, "Ranker returned no candidates.");
         Assert(ranked[0].Artist == "Red", "Ranker did not rank similar track first.");
+    }
+
+    private static void TestRankerAppliesSearchFilters()
+    {
+        TrackInfo allowed = Track("track_1", "file://allowed", "Mike Shinoda", "Already Over", "Crimson Chapter", "Rock", "3:00", 0);
+        TrackInfo excludedAlbum = Track("track_2", "file://album", "Mike Shinoda", "Open Door", "Post Traumatic", "Rock", "3:00", 0);
+        TrackInfo instrumental = Track("track_3", "file://instrumental", "Mike Shinoda", "Fine Instrumental", "Single", "Instrumental", "3:00", 0);
+
+        SearchIntent intent = new SearchIntent();
+        intent.RetrievalQuery = "Mike Shinoda";
+        intent.ExcludedAlbums.Add("Post Traumatic");
+        intent.ExcludeInstrumental = true;
+
+        List<TrackInfo> ranked = new CandidateRanker().Rank(new TrackInfo[] { allowed, excludedAlbum, instrumental }, intent, null, 10);
+
+        Assert(ranked.Count == 1, "Ranker did not remove excluded album and instrumental tracks.");
+        Assert(ranked[0].Title == "Already Over", "Ranker returned the wrong filtered track.");
     }
 
     private static void TestDiversityAndDedup()
@@ -304,6 +407,24 @@ public class LocalHarness
         Assert(store.LastPlan == null, "New chat did not reset last plan.");
     }
 
+    private static void TestConversationStoreDeleteConversation()
+    {
+        string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mb_agent_test_" + Guid.NewGuid().ToString("N"));
+        ConversationStore store = new ConversationStore(dir);
+        string first = store.ActiveConversationId;
+        store.SaveMessage("user", "first");
+        string second = store.NewConversation();
+        store.SaveMessage("user", "second");
+
+        Assert(store.DeleteConversation(second), "ConversationStore did not delete active conversation.");
+        Assert(store.ActiveConversationId != second, "ConversationStore kept deleted active conversation selected.");
+        Assert(store.ListConversations().Count == 1, "ConversationStore did not remove deleted conversation from list.");
+
+        Assert(store.DeleteConversation(first), "ConversationStore did not delete remaining conversation.");
+        Assert(store.ListConversations().Count == 1, "ConversationStore should create a replacement chat after deleting the last one.");
+        Assert(!string.IsNullOrEmpty(store.ActiveConversationId), "ConversationStore replacement active id is empty.");
+    }
+
     private static void TestRankingModes()
     {
         CandidateRanker ranker = new CandidateRanker();
@@ -359,6 +480,19 @@ public class LocalHarness
         {
             throw new InvalidOperationException(message);
         }
+    }
+
+    private static bool ContainsNormalized(List<string> values, string expected)
+    {
+        string expectedKey = NormalizationService.NormalizeKey(expected);
+        foreach (string value in values)
+        {
+            if (NormalizationService.NormalizeKey(value) == expectedKey)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private sealed class FakeAiProvider : IAiProvider

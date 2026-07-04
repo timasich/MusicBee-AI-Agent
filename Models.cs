@@ -166,6 +166,7 @@ namespace MusicBeePlugin
         public bool DeduplicateTracks = true;
         public bool AllowVersions;
         public bool WantsOnlyLocal;
+        public bool ExcludeInstrumental;
         public List<string> ExcludedArtists = new List<string>();
         public List<string> BoostArtists = new List<string>();
         public List<string> ExcludedAlbums = new List<string>();
@@ -173,6 +174,8 @@ namespace MusicBeePlugin
         public int MaxTracksPerAlbum;
         public int TargetDurationSeconds;
         public int RequestedTrackCount;
+        public int RequestedTrackCountMin;
+        public int RequestedTrackCountMax;
         public int MaxTracks = 60;
         public string QueryText;
         public string RetrievalQuery;
@@ -200,6 +203,7 @@ namespace MusicBeePlugin
             clone.DeduplicateTracks = DeduplicateTracks;
             clone.AllowVersions = AllowVersions;
             clone.WantsOnlyLocal = WantsOnlyLocal;
+            clone.ExcludeInstrumental = ExcludeInstrumental;
             clone.ExcludedArtists = new List<string>(ExcludedArtists);
             clone.BoostArtists = new List<string>(BoostArtists);
             clone.ExcludedAlbums = new List<string>(ExcludedAlbums);
@@ -207,6 +211,8 @@ namespace MusicBeePlugin
             clone.MaxTracksPerAlbum = MaxTracksPerAlbum;
             clone.TargetDurationSeconds = TargetDurationSeconds;
             clone.RequestedTrackCount = RequestedTrackCount;
+            clone.RequestedTrackCountMin = RequestedTrackCountMin;
+            clone.RequestedTrackCountMax = RequestedTrackCountMax;
             clone.MaxTracks = MaxTracks;
             clone.QueryText = QueryText;
             clone.RetrievalQuery = RetrievalQuery;

@@ -77,10 +77,10 @@ namespace MusicBeePlugin
 
         public string NewConversation()
         {
-            activeConversationId = "chat_" + DateTime.Now.ToString("yyyyMMddHHmmssfff");
-            lastPlan = null;
             XmlDocument doc = LoadDocument();
             XmlElement root = doc.DocumentElement;
+            activeConversationId = CreateConversationId(root);
+            lastPlan = null;
             root.SetAttribute("active", activeConversationId);
             GetOrCreateConversation(doc, root, activeConversationId);
             doc.Save(filePath);
@@ -117,6 +117,51 @@ namespace MusicBeePlugin
             conversation.SetAttribute("title", title.Trim());
             conversation.SetAttribute("updated_at", DateTime.Now.ToString("s"));
             doc.Save(filePath);
+        }
+
+        public bool DeleteConversation(string id)
+        {
+            if (string.IsNullOrEmpty(id))
+            {
+                return false;
+            }
+
+            XmlDocument doc = LoadDocument();
+            XmlElement root = doc.DocumentElement;
+            XmlElement conversation = root.SelectSingleNode("Conversation[@id='" + EscapeXPath(id) + "']") as XmlElement;
+            if (conversation == null)
+            {
+                return false;
+            }
+
+            bool deletedActive = string.Equals(root.GetAttribute("active"), id, StringComparison.OrdinalIgnoreCase);
+            root.RemoveChild(conversation);
+
+            if (deletedActive)
+            {
+                XmlElement replacement = FindMostRecentConversation(root);
+                if (replacement == null)
+                {
+                    activeConversationId = CreateConversationId(root);
+                    root.SetAttribute("active", activeConversationId);
+                    replacement = GetOrCreateConversation(doc, root, activeConversationId);
+                    XmlElement message = doc.CreateElement("Message");
+                    message.SetAttribute("role", "system");
+                    message.SetAttribute("created_at", DateTime.Now.ToString("s"));
+                    message.InnerText = "New chat started.";
+                    replacement.AppendChild(message);
+                }
+                else
+                {
+                    activeConversationId = replacement.GetAttribute("id");
+                    root.SetAttribute("active", activeConversationId);
+                }
+                lastPlan = ReadLastPlan(replacement);
+            }
+
+            doc.Save(filePath);
+            EnsureLoaded();
+            return true;
         }
 
         public string GetConversationTitle(string id)
@@ -252,7 +297,7 @@ namespace MusicBeePlugin
             activeConversationId = root.GetAttribute("active");
             if (string.IsNullOrEmpty(activeConversationId))
             {
-                activeConversationId = "chat_" + DateTime.Now.ToString("yyyyMMddHHmmssfff");
+                activeConversationId = CreateConversationId(root);
                 root.SetAttribute("active", activeConversationId);
                 GetOrCreateConversation(doc, root, activeConversationId);
                 doc.Save(filePath);
@@ -284,6 +329,35 @@ namespace MusicBeePlugin
             conversation.SetAttribute("updated_at", DateTime.Now.ToString("s"));
             root.AppendChild(conversation);
             return conversation;
+        }
+
+        private static string CreateConversationId(XmlElement root)
+        {
+            string id;
+            do
+            {
+                id = "chat_" + DateTime.Now.ToString("yyyyMMddHHmmssfff") + "_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            }
+            while (root != null && root.SelectSingleNode("Conversation[@id='" + EscapeXPath(id) + "']") != null);
+            return id;
+        }
+
+        private static XmlElement FindMostRecentConversation(XmlElement root)
+        {
+            XmlElement result = null;
+            foreach (XmlNode node in root.SelectNodes("Conversation"))
+            {
+                XmlElement conversation = node as XmlElement;
+                if (conversation == null)
+                {
+                    continue;
+                }
+                if (result == null || string.Compare(conversation.GetAttribute("updated_at"), result.GetAttribute("updated_at"), StringComparison.OrdinalIgnoreCase) > 0)
+                {
+                    result = conversation;
+                }
+            }
+            return result;
         }
 
         private static LastPlanContext ReadLastPlan(XmlElement conversation)

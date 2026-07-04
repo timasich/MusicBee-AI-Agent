@@ -47,6 +47,16 @@ namespace MusicBeePlugin
             return conversationStore.ListConversations();
         }
 
+        public string ActiveConversationId
+        {
+            get { return conversationStore.ActiveConversationId; }
+        }
+
+        public string GetConversationTitle(string id)
+        {
+            return conversationStore.GetConversationTitle(id);
+        }
+
         public List<ConversationMessage> OpenConversation(string id)
         {
             conversationStore.OpenConversation(id);
@@ -56,6 +66,11 @@ namespace MusicBeePlugin
         public void RenameConversation(string id, string title)
         {
             conversationStore.RenameConversation(id, title);
+        }
+
+        public bool DeleteConversation(string id)
+        {
+            return conversationStore.DeleteConversation(id);
         }
 
         public AgentResult Send(string userMessage)
@@ -83,7 +98,7 @@ namespace MusicBeePlugin
                 cancellationToken.ThrowIfCancellationRequested();
                 SearchIntent intent = intentParser.Parse(userMessage, nowPlaying, profile, history, lastPlan, cancellationToken);
                 RepairStateFromPreviousPlan(intent, lastPlan, trace, traceSink);
-                AddTrace(trace, traceSink, "Model intent decision: turnKind=" + intent.TurnKind + ", task=" + intent.Task + ", query='" + intent.RetrievalQuery + "', rankingMode=" + intent.RankingMode + ", requestedTrackCount=" + intent.RequestedTrackCount + ", confidence=" + intent.Confidence + ".");
+                AddTrace(trace, traceSink, "Model intent decision: turnKind=" + intent.TurnKind + ", task=" + intent.Task + ", query='" + intent.RetrievalQuery + "', rankingMode=" + intent.RankingMode + ", requestedTrackCount=" + intent.RequestedTrackCount + ", requestedRange=" + intent.RequestedTrackCountMin + "-" + intent.RequestedTrackCountMax + ", confidence=" + intent.Confidence + ".");
                 AddPlanTrace(trace, traceSink, intent);
                 if (!ValidateOrRepairIntent(intent, lastPlan, trace, traceSink))
                 {
@@ -195,6 +210,16 @@ namespace MusicBeePlugin
                         {
                             result.PendingAction = actionValidator.Validate(response.Actions[0], candidateSet, intent);
                             AddTrace(trace, traceSink, "Validated repaired model action: valid=" + result.PendingAction.IsValid + ".");
+                        }
+                    }
+                    if (result.PendingAction != null && !result.PendingAction.IsValid)
+                    {
+                        PendingAction machineRepair = TryRepairTrackCountSelection(result.PendingAction, new List<TrackInfo>(candidateSet.Tracks), candidateSet, intent, trace, traceSink);
+                        if (machineRepair != null && machineRepair.IsValid)
+                        {
+                            result.PendingAction = machineRepair;
+                            string note = "I adjusted the selection locally to satisfy the requested track-count constraints.";
+                            result.Message = string.IsNullOrEmpty(result.Message) ? note : result.Message + "\r\n" + note;
                         }
                     }
                     SaveSimplePlanContext(effectiveMessage, intent, result.PendingAction, result.Message);
@@ -477,7 +502,14 @@ namespace MusicBeePlugin
             {
                 return "";
             }
-            return "task=" + intent.Task + ", query=" + intent.RetrievalQuery + ", rankingMode=" + intent.RankingMode + ", requestedTrackCount=" + intent.RequestedTrackCount + ", duration=" + intent.TargetDurationSeconds;
+            return "task=" + intent.Task + ", query=" + intent.RetrievalQuery + ", rankingMode=" + intent.RankingMode +
+                ", requestedTrackCount=" + intent.RequestedTrackCount +
+                ", requestedTrackCountMin=" + intent.RequestedTrackCountMin +
+                ", requestedTrackCountMax=" + intent.RequestedTrackCountMax +
+                ", excludeInstrumental=" + intent.ExcludeInstrumental +
+                ", excludedArtists=" + JoinTraceList(intent.ExcludedArtists) +
+                ", excludedAlbums=" + JoinTraceList(intent.ExcludedAlbums) +
+                ", duration=" + intent.TargetDurationSeconds;
         }
 
         private static string AddConstraintFeedback(string message, SearchIntent intent, List<TrackInfo> candidates)
@@ -518,6 +550,11 @@ namespace MusicBeePlugin
                     "; diverseArtists:" + intent.DiverseArtists +
                     "; diverseAlbums:" + intent.DiverseAlbums +
                     "; requestedTrackCount:" + intent.RequestedTrackCount +
+                    "; requestedTrackCountMin:" + intent.RequestedTrackCountMin +
+                    "; requestedTrackCountMax:" + intent.RequestedTrackCountMax +
+                    "; excludeInstrumental:" + intent.ExcludeInstrumental +
+                    "; excludedArtists:" + JoinTraceList(intent.ExcludedArtists) +
+                    "; excludedAlbums:" + JoinTraceList(intent.ExcludedAlbums) +
                     "; maxTracksPerArtist:" + intent.MaxTracksPerArtist +
                     "; maxTracksPerAlbum:" + intent.MaxTracksPerAlbum +
                     "; selectionMode:" + intent.SelectionMode +
@@ -525,6 +562,116 @@ namespace MusicBeePlugin
             }
             builder.AppendLine("Correction rule: preserve prior valid proposal tracks unless the user requested their removal; add more candidates through provided trackIds only.");
             return builder.ToString();
+        }
+
+        private static string JoinTraceList(List<string> values)
+        {
+            if (values == null || values.Count == 0)
+            {
+                return "";
+            }
+            return string.Join("|", values.ToArray());
+        }
+
+        private PendingAction TryRepairTrackCountSelection(PendingAction failed, List<TrackInfo> candidates, CandidateSet candidateSet, SearchIntent intent, List<string> trace, Action<string> traceSink)
+        {
+            if (failed == null || failed.Action == null || intent == null || !HasTrackCountConstraint(intent))
+            {
+                return null;
+            }
+
+            if (failed.Action.Type == "play_track_now" || failed.Action.Type == "delete_ai_playlist")
+            {
+                return null;
+            }
+
+            int min = MinimumRequestedTrackCount(intent);
+            int max = MaximumRequestedTrackCount(intent);
+            if (max <= 0)
+            {
+                return null;
+            }
+
+            List<TrackInfo> pool = new List<TrackInfo>();
+            AddUniqueTracks(pool, new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase), failed.Tracks);
+            AddUniqueTracks(pool, new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase), candidates);
+            pool = DeduplicateTracks(pool);
+
+            if (pool.Count < min)
+            {
+                AddTrace(trace, traceSink, "Local track-count repair skipped: requestedMin=" + min + ", candidates=" + pool.Count + ".");
+                return null;
+            }
+
+            int desired = Math.Min(max, pool.Count);
+            List<TrackInfo> selected = TakeCount(pool, desired);
+            AiAction action = CloneActionForRepair(failed.Action);
+            action.TrackIds.Clear();
+            foreach (TrackInfo track in selected)
+            {
+                action.TrackIds.Add(track.Id);
+            }
+
+            PendingAction repaired = actionValidator.Validate(action, candidateSet, intent);
+            AddTrace(trace, traceSink, "Local track-count repair produced " + selected.Count + " track(s), valid=" + repaired.IsValid + (repaired.IsValid ? "" : ", error=" + repaired.ValidationError) + ".");
+            return repaired.IsValid ? repaired : null;
+        }
+
+        private static bool HasTrackCountConstraint(SearchIntent intent)
+        {
+            return intent != null && (intent.RequestedTrackCount > 0 || intent.RequestedTrackCountMin > 0 || intent.RequestedTrackCountMax > 0);
+        }
+
+        private static int MinimumRequestedTrackCount(SearchIntent intent)
+        {
+            if (intent == null)
+            {
+                return 0;
+            }
+            if (intent.RequestedTrackCount > 0)
+            {
+                return intent.RequestedTrackCount;
+            }
+            if (intent.RequestedTrackCountMin > 0)
+            {
+                return intent.RequestedTrackCountMin;
+            }
+            return intent.RequestedTrackCountMax;
+        }
+
+        private static int MaximumRequestedTrackCount(SearchIntent intent)
+        {
+            if (intent == null)
+            {
+                return 0;
+            }
+            if (intent.RequestedTrackCount > 0)
+            {
+                return intent.RequestedTrackCount;
+            }
+            if (intent.RequestedTrackCountMax > 0)
+            {
+                return intent.RequestedTrackCountMax;
+            }
+            return intent.RequestedTrackCountMin;
+        }
+
+        private static AiAction CloneActionForRepair(AiAction source)
+        {
+            AiAction action = new AiAction();
+            if (source == null)
+            {
+                return action;
+            }
+            action.Type = source.Type;
+            action.RequiresConfirmation = true;
+            action.AllowVersions = source.AllowVersions;
+            action.TargetDurationSeconds = source.TargetDurationSeconds;
+            action.Title = source.Title;
+            action.PlaylistUrl = source.PlaylistUrl;
+            action.PlaylistName = source.PlaylistName;
+            action.Explanation = string.IsNullOrEmpty(source.Explanation) ? "Locally adjusted to match requested track count." : source.Explanation + " Locally adjusted to match requested track count.";
+            return action;
         }
 
         private static int CountDistinctArtists(List<TrackInfo> tracks)
@@ -551,7 +698,7 @@ namespace MusicBeePlugin
             for (int i = 0; i < requests.Count; i++)
             {
                 ToolRequest request = requests[i];
-                int limit = Math.Max(1, Math.Min(80, request.Limit));
+                int limit = Math.Max(1, Math.Min(160, request.Limit <= 0 ? 40 : request.Limit));
                 builder.AppendLine("Tool: " + request.Name);
                 if (request.Name == "get_now_playing")
                 {
@@ -774,10 +921,7 @@ namespace MusicBeePlugin
             }
 
             AddCandidates(candidateSet, tracks);
-            foreach (TrackInfo track in tracks)
-            {
-                promptBuilder.AppendTrack(builder, track);
-            }
+            promptBuilder.AppendTrackGroups(builder, tracks);
         }
 
         private static void AddCandidates(CandidateSet candidateSet, List<TrackInfo> tracks)
@@ -1055,6 +1199,7 @@ namespace MusicBeePlugin
             PlaylistEditConstraints constraints = BuildPlaylistEditConstraints(intent, playlistCommand);
             AddTrace(trace, traceSink, "Playlist edit constraints: actionType=" + constraints.ActionType +
                 ", requestedTrackCount=" + constraints.RequestedTrackCount +
+                ", requestedRange=" + constraints.RequestedTrackCountMin + "-" + constraints.RequestedTrackCountMax +
                 ", targetSeconds=" + constraints.TargetDurationSeconds +
                 ", toleranceSeconds=" + constraints.DurationToleranceSeconds +
                 ", selectionMode=" + constraints.SelectionMode + ".");
@@ -1187,8 +1332,8 @@ namespace MusicBeePlugin
             Dictionary<string, bool> files = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             foreach (ToolRequest request in requests ?? new List<ToolRequest>())
             {
-                int limit = Math.Max(1, Math.Min(80, request.Limit <= 0 ? 20 : request.Limit));
-                int searchLimit = Math.Min(80, Math.Max(limit, limit * 3));
+                int limit = Math.Max(1, Math.Min(160, request.Limit <= 0 ? 20 : request.Limit));
+                int searchLimit = Math.Min(160, Math.Max(limit, limit * 3));
                 List<TrackInfo> tracks;
                 if (request.Name == "search_artist_tracks")
                 {
@@ -1339,6 +1484,8 @@ namespace MusicBeePlugin
             PlaylistEditConstraints constraints = new PlaylistEditConstraints();
             constraints.ActionType = DeterminePlaylistEditActionType(intent, playlistCommand);
             constraints.RequestedTrackCount = intent == null ? 0 : intent.RequestedTrackCount;
+            constraints.RequestedTrackCountMin = intent == null ? 0 : intent.RequestedTrackCountMin;
+            constraints.RequestedTrackCountMax = intent == null ? 0 : intent.RequestedTrackCountMax;
             constraints.TargetDurationSeconds = intent == null ? 0 : intent.TargetDurationSeconds;
             constraints.DurationToleranceSeconds = DurationToleranceSeconds(constraints.TargetDurationSeconds);
             constraints.SelectionMode = intent == null ? "" : intent.SelectionMode;
@@ -1373,20 +1520,27 @@ namespace MusicBeePlugin
 
         private static bool HasMachineSelectionConstraints(PlaylistEditConstraints constraints)
         {
-            return constraints != null && (constraints.RequestedTrackCount > 0 || constraints.TargetDurationSeconds > 0);
+            return constraints != null && (constraints.RequestedTrackCount > 0 || constraints.RequestedTrackCountMin > 0 || constraints.RequestedTrackCountMax > 0 || constraints.TargetDurationSeconds > 0);
         }
 
         private List<TrackInfo> SelectConstrainedTracks(List<TrackInfo> candidates, PlaylistEditConstraints constraints, List<string> trace, Action<string> traceSink)
         {
             List<TrackInfo> pool = DeduplicateTracks(candidates);
             int requestedCount = constraints.RequestedTrackCount;
-            if (requestedCount <= 0 && constraints.TargetDurationSeconds <= 0)
+            int requestedMin = constraints.RequestedTrackCountMin <= 0 ? constraints.RequestedTrackCountMax : constraints.RequestedTrackCountMin;
+            int requestedMax = constraints.RequestedTrackCountMax <= 0 ? constraints.RequestedTrackCountMin : constraints.RequestedTrackCountMax;
+            if (requestedCount <= 0 && requestedMax > 0)
+            {
+                requestedCount = requestedMax;
+            }
+            if (requestedCount <= 0 && requestedMax <= 0 && constraints.TargetDurationSeconds <= 0)
             {
                 return new List<TrackInfo>();
             }
-            if (requestedCount > 0 && pool.Count < requestedCount)
+            int requiredMinimum = requestedMin > 0 ? requestedMin : requestedCount;
+            if (requiredMinimum > 0 && pool.Count < requiredMinimum)
             {
-                AddTrace(trace, traceSink, "Not enough candidate tracks for requested count: requested=" + requestedCount + ", candidates=" + pool.Count + ".");
+                AddTrace(trace, traceSink, "Not enough candidate tracks for requested count: requestedMin=" + requiredMinimum + ", candidates=" + pool.Count + ".");
                 return null;
             }
 
@@ -1402,6 +1556,14 @@ namespace MusicBeePlugin
                 if (selected.Count == 0)
                 {
                     continue;
+                }
+                if (requestedMin > 0 && selected.Count < requestedMin)
+                {
+                    continue;
+                }
+                if (requestedMax > 0 && selected.Count > requestedMax)
+                {
+                    selected = TakeCount(selected, requestedMax);
                 }
 
                 int total = SumDuration(selected);
@@ -1557,6 +1719,8 @@ namespace MusicBeePlugin
             builder.AppendLine("Constraint ledger:");
             builder.AppendLine("actionType: " + constraints.ActionType);
             builder.AppendLine("requestedTrackCount: " + constraints.RequestedTrackCount);
+            builder.AppendLine("requestedTrackCountMin: " + constraints.RequestedTrackCountMin);
+            builder.AppendLine("requestedTrackCountMax: " + constraints.RequestedTrackCountMax);
             builder.AppendLine("targetSeconds: " + constraints.TargetDurationSeconds);
             builder.AppendLine("minSeconds: " + Math.Max(0, constraints.TargetDurationSeconds - constraints.DurationToleranceSeconds));
             builder.AppendLine("maxSeconds: " + (constraints.TargetDurationSeconds <= 0 ? 0 : constraints.TargetDurationSeconds + constraints.DurationToleranceSeconds));
@@ -1574,6 +1738,8 @@ namespace MusicBeePlugin
         {
             public string ActionType;
             public int RequestedTrackCount;
+            public int RequestedTrackCountMin;
+            public int RequestedTrackCountMax;
             public int TargetDurationSeconds;
             public int DurationToleranceSeconds;
             public string SelectionMode;

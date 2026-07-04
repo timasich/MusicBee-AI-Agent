@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 
 namespace MusicBeePlugin
@@ -68,6 +69,8 @@ namespace MusicBeePlugin
             {
                 llmIntent.MaxTracks = 40;
             }
+            ApplyLocalIntentHints(llmIntent, userMessage);
+            NormalizeTrackCountConstraints(llmIntent);
             if (llmIntent.TargetDurationSeconds > 0 && llmIntent.RequestedTrackCount <= 0)
             {
                 llmIntent.MaxTracks = Math.Max(llmIntent.MaxTracks, 120);
@@ -119,6 +122,7 @@ namespace MusicBeePlugin
             intent.DeduplicateTracks = SimpleJson.GetBool(root, "deduplicateTracks", true);
             intent.AllowVersions = SimpleJson.GetBool(root, "allowVersions", false);
             intent.WantsOnlyLocal = SimpleJson.GetBool(root, "wantsOnlyLocal", false);
+            intent.ExcludeInstrumental = SimpleJson.GetBool(root, "excludeInstrumental", false);
             intent.TargetPlaylistName = CleanQuery(SimpleJson.GetString(root, "targetPlaylistName"));
             intent.PlaylistOperation = CleanToken(SimpleJson.GetString(root, "playlistOperation"), 32);
             intent.RankingMode = CleanToken(SimpleJson.GetString(root, "rankingMode"), 32);
@@ -128,6 +132,8 @@ namespace MusicBeePlugin
             intent.MaxTracksPerArtist = Clamp(GetInt(root, "maxTracksPerArtist", 0), 0, 20);
             intent.MaxTracksPerAlbum = Clamp(GetInt(root, "maxTracksPerAlbum", 0), 0, 20);
             intent.RequestedTrackCount = Clamp(GetInt(root, "requestedTrackCount", 0), 0, 200);
+            intent.RequestedTrackCountMin = Clamp(GetInt(root, "requestedTrackCountMin", 0), 0, 200);
+            intent.RequestedTrackCountMax = Clamp(GetInt(root, "requestedTrackCountMax", 0), 0, 200);
             intent.MaxTracks = Clamp(GetInt(root, "maxTracks", 0), 0, 200);
             int targetDurationSeconds = GetInt(root, "targetDurationSeconds", 0);
             int targetDurationMinutes = GetInt(root, "targetDurationMinutes", 0);
@@ -158,7 +164,9 @@ namespace MusicBeePlugin
                 "Infer meaning from the user request, conversation history, previous proposed playlist, typos, and any language. " +
                 "Allowed task values: info, search, create_playlist, queue, play, edit_playlist, delete_playlist, delete_proposal, other. " +
                 "Allowed playlistOperation values: none, append_tracks, replace_tracks, update_tracks, delete_playlist, delete_proposal, reorder_tracks. " +
-                "Schema: {\"turnKind\":\"new_task|follow_up|refine_previous|clarify\",\"task\":\"info|search|create_playlist|queue|play|edit_playlist|delete_playlist|delete_proposal|other\",\"sourceLanguage\":\"iso_or_name\",\"userGoal\":\"plain English description\",\"orchestrationPlan\":[\"step 1\",\"step 2\"],\"selectionMode\":\"ranked|random|balanced|favorites\",\"similar\":false,\"calmer\":false,\"energetic\":false,\"excludeCurrentArtist\":false,\"diverseArtists\":false,\"diverseAlbums\":false,\"deduplicateTracks\":true,\"allowVersions\":false,\"wantsOnlyLocal\":false,\"excludedArtists\":[],\"boostArtists\":[],\"excludedAlbums\":[],\"targetDurationMinutes\":0,\"targetDurationSeconds\":0,\"requestedTrackCount\":0,\"maxTracks\":0,\"maxTracksPerArtist\":0,\"maxTracksPerAlbum\":0,\"targetPlaylistName\":\"\",\"playlistOperation\":\"none\",\"rankingMode\":\"normal|favorites|most_played|recently_played|least_played\",\"retrievalQuery\":\"short translated music-library keywords\",\"confidence\":0.0}. " +
+                "Schema: {\"turnKind\":\"new_task|follow_up|refine_previous|clarify\",\"task\":\"info|search|create_playlist|queue|play|edit_playlist|delete_playlist|delete_proposal|other\",\"sourceLanguage\":\"iso_or_name\",\"userGoal\":\"plain English description\",\"orchestrationPlan\":[\"step 1\",\"step 2\"],\"selectionMode\":\"ranked|random|balanced|favorites\",\"similar\":false,\"calmer\":false,\"energetic\":false,\"excludeCurrentArtist\":false,\"diverseArtists\":false,\"diverseAlbums\":false,\"deduplicateTracks\":true,\"allowVersions\":false,\"wantsOnlyLocal\":false,\"excludeInstrumental\":false,\"excludedArtists\":[],\"boostArtists\":[],\"excludedAlbums\":[],\"targetDurationMinutes\":0,\"targetDurationSeconds\":0,\"requestedTrackCount\":0,\"requestedTrackCountMin\":0,\"requestedTrackCountMax\":0,\"maxTracks\":0,\"maxTracksPerArtist\":0,\"maxTracksPerAlbum\":0,\"targetPlaylistName\":\"\",\"playlistOperation\":\"none\",\"rankingMode\":\"normal|favorites|most_played|recently_played|least_played\",\"retrievalQuery\":\"short translated music-library keywords\",\"confidence\":0.0}. " +
+                "If the user asks for an exact number of tracks, set requestedTrackCount. If the user asks for a range like 30-40 tracks, set requestedTrackCountMin and requestedTrackCountMax and leave requestedTrackCount at 0. " +
+                "Map negative filters into excludedArtists, excludedAlbums, and excludeInstrumental. Keep excluded album/artist names out of retrievalQuery. " +
                 "If the user asks for favorite/loved/liked tracks in any language, set rankingMode=favorites and put only concrete filters such as artist/genre in retrievalQuery, not generic preference words. " +
                 "If the user asks for frequently played/most played/often listened tracks in any language, set rankingMode=most_played and put only concrete filters such as artist/genre in retrievalQuery. " +
                 "If the user asks for a duration in any language, always fill targetDurationMinutes or targetDurationSeconds; do not leave duration at 0 when orchestrationPlan mentions a duration. " +
@@ -238,6 +246,236 @@ namespace MusicBeePlugin
                 builder.AppendLine("tracks:");
                 builder.AppendLine(lastPlan.TrackSnapshot);
             }
+        }
+
+        private static void ApplyLocalIntentHints(SearchIntent intent, string userMessage)
+        {
+            if (intent == null)
+            {
+                return;
+            }
+
+            TrackCountRange range = DetectRequestedTrackCount(userMessage);
+            if (range.Min > 0)
+            {
+                if (range.Max > range.Min)
+                {
+                    intent.RequestedTrackCountMin = range.Min;
+                    intent.RequestedTrackCountMax = range.Max;
+                    intent.RequestedTrackCount = 0;
+                    intent.MaxTracks = Math.Max(intent.MaxTracks, range.Max);
+                }
+                else if (intent.RequestedTrackCount <= 0)
+                {
+                    intent.RequestedTrackCount = range.Min;
+                    intent.MaxTracks = Math.Max(intent.MaxTracks, range.Min);
+                }
+            }
+
+            AddLocalFilterHints(intent, userMessage);
+        }
+
+        private static void NormalizeTrackCountConstraints(SearchIntent intent)
+        {
+            if (intent == null)
+            {
+                return;
+            }
+
+            if (intent.RequestedTrackCountMin > 0 && intent.RequestedTrackCountMax > 0 &&
+                intent.RequestedTrackCountMin > intent.RequestedTrackCountMax)
+            {
+                int temp = intent.RequestedTrackCountMin;
+                intent.RequestedTrackCountMin = intent.RequestedTrackCountMax;
+                intent.RequestedTrackCountMax = temp;
+            }
+
+            if (intent.RequestedTrackCountMin > 0 && intent.RequestedTrackCountMax <= 0)
+            {
+                intent.RequestedTrackCountMax = intent.RequestedTrackCountMin;
+            }
+            if (intent.RequestedTrackCountMax > 0 && intent.RequestedTrackCountMin <= 0)
+            {
+                intent.RequestedTrackCountMin = intent.RequestedTrackCountMax;
+            }
+
+            if (intent.RequestedTrackCountMin > 0 && intent.RequestedTrackCountMax > intent.RequestedTrackCountMin)
+            {
+                intent.RequestedTrackCount = 0;
+                intent.MaxTracks = Math.Max(intent.MaxTracks, intent.RequestedTrackCountMax);
+            }
+            else if (intent.RequestedTrackCountMin > 0 && intent.RequestedTrackCount <= 0)
+            {
+                intent.RequestedTrackCount = intent.RequestedTrackCountMin;
+                intent.RequestedTrackCountMin = 0;
+                intent.RequestedTrackCountMax = 0;
+            }
+        }
+
+        private static TrackCountRange DetectRequestedTrackCount(string userMessage)
+        {
+            TrackCountRange result = new TrackCountRange();
+            string text = userMessage ?? "";
+            RegexOptions options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+            string trackWords = "(?:songs?|tracks?|\\u043f\\u0435\\u0441(?:\\u0435\\u043d|\\u043d\\u0438|\\u043d\\u044e|\\u043d\\u044f)?|\\u0442\\u0440\\u0435\\u043a(?:\\u043e\\u0432|\\u0430|\\u0438)?|\\u043a\\u043e\\u043c\\u043f\\u043e\\u0437\\u0438\\u0446)";
+            Match range = Regex.Match(text, "(?<!\\d)(\\d{1,3})\\s*(?:-|\\u2013|\\u2014|to|\\u0434\\u043e)\\s*(\\d{1,3})\\s*" + trackWords, options);
+            if (range.Success)
+            {
+                int left = Clamp(ParseInt(range.Groups[1].Value), 0, 200);
+                int right = Clamp(ParseInt(range.Groups[2].Value), 0, 200);
+                if (left > 0 && right > 0)
+                {
+                    result.Min = Math.Min(left, right);
+                    result.Max = Math.Max(left, right);
+                    return result;
+                }
+            }
+
+            Match exact = Regex.Match(text, "(?<!\\d)(\\d{1,3})\\s*" + trackWords, options);
+            if (exact.Success)
+            {
+                int count = Clamp(ParseInt(exact.Groups[1].Value), 0, 200);
+                result.Min = count;
+                result.Max = count;
+            }
+            return result;
+        }
+
+        private static void AddLocalFilterHints(SearchIntent intent, string userMessage)
+        {
+            if (intent == null || string.IsNullOrWhiteSpace(userMessage))
+            {
+                return;
+            }
+
+            if (DetectInstrumentalExclusion(userMessage))
+            {
+                intent.ExcludeInstrumental = true;
+            }
+
+            AddExcludedValues(intent.ExcludedAlbums, userMessage, FilterKindAlbumPattern());
+            AddExcludedValues(intent.ExcludedArtists, userMessage, FilterKindArtistPattern());
+        }
+
+        private static void AddExcludedValues(List<string> target, string userMessage, string kindPattern)
+        {
+            RegexOptions options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+            string exclusionWords = ExclusionWordsPattern();
+            string boundary = "(?=\\s+(?:without|excluding|exclude|except|not from|no|by|from|with|and no|and without|\\u0431\\u0435\\u0437|\\u0438\\u0441\\u043a\\u043b\\u044e\\u0447|\\u043a\\u0440\\u043e\\u043c\\u0435|\\u0438\\s+\\u0431\\u0435\\u0437)\\b|[\\r\\n.;:]|$)";
+            string pattern = exclusionWords + "\\s+(?:" + kindPattern + ")\\s+(?<values>.+?)" + boundary;
+            foreach (Match match in Regex.Matches(userMessage, pattern, options))
+            {
+                AddNameList(target, match.Groups["values"].Value);
+            }
+        }
+
+        private static void AddNameList(List<string> target, string raw)
+        {
+            string value = TrimTrailingListText(raw);
+            string[] parts = Regex.Split(value, "\\s*(?:,|;|/|\\band\\b|\\bor\\b|\\b\\u0438\\u043b\\u0438\\b|\\b\\u0438\\b)\\s*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            foreach (string part in parts)
+            {
+                string item = CleanFilterName(part);
+                if (item.Length > 1 && !LooksLikeGenericFilterTail(item))
+                {
+                    AddUnique(target, item);
+                }
+            }
+        }
+
+        private static string ExclusionWordsPattern()
+        {
+            return "(?:without|excluding|exclude|except|not\\s+from|no|\\u0431\\u0435\\u0437|\\u0438\\u0441\\u043a\\u043b\\u044e\\u0447\\u0430\\u044f|\\u0438\\u0441\\u043a\\u043b\\u044e\\u0447\\u0438\\u0442\\u044c|\\u043a\\u0440\\u043e\\u043c\\u0435)";
+        }
+
+        private static string FilterKindAlbumPattern()
+        {
+            return "(?:albums?|records?|releases?|\\u0430\\u043b\\u044c\\u0431\\u043e\\u043c(?:\\u043e\\u0432|\\u044b|\\u0430|\\u043e\\u043c)?)";
+        }
+
+        private static string FilterKindArtistPattern()
+        {
+            return "(?:artists?|performers?|bands?|\\u0438\\u0441\\u043f\\u043e\\u043b\\u043d\\u0438\\u0442\\u0435\\u043b(?:\\u0435\\u0439|\\u0438|\\u044f|\\u0435\\u043c)?|\\u0430\\u0440\\u0442\\u0438\\u0441\\u0442(?:\\u043e\\u0432|\\u044b|\\u0430)?)";
+        }
+
+        private static bool DetectInstrumentalExclusion(string userMessage)
+        {
+            string text = NormalizationService.NormalizeKey(userMessage);
+            return text.IndexOf("\u0431\u0435\u0437 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                text.IndexOf("\u043d\u0435 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                text.IndexOf("without instrumental", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                text.IndexOf("no instrumental", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                text.IndexOf("non instrumental", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                text.IndexOf("non-instrumental", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static string TrimTrailingListText(string value)
+        {
+            value = (value ?? "").Trim();
+            string[] separators = new string[]
+            {
+                "\r", "\n", ".", " without ", " excluding ", " except ", " not from ", " no ",
+                " \u0431\u0435\u0437 ", " \u0438\u0441\u043a\u043b\u044e\u0447", " \u043a\u0440\u043e\u043c\u0435 "
+            };
+            for (int i = 0; i < separators.Length; i++)
+            {
+                int index = value.IndexOf(separators[i], StringComparison.OrdinalIgnoreCase);
+                if (index > 0)
+                {
+                    value = value.Substring(0, index).Trim();
+                }
+            }
+            return value.Trim(' ', '\'', '"');
+        }
+
+        private static string CleanFilterName(string value)
+        {
+            value = (value ?? "").Trim();
+            value = Regex.Replace(value, "^(?:the|album|albums|artist|artists|record|records|release|releases)\\s+", "", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            value = Regex.Replace(value, "^(?:\\u0430\\u043b\\u044c\\u0431\\u043e\\u043c(?:\\u043e\\u0432|\\u044b|\\u0430|\\u043e\\u043c)?|\\u0438\\u0441\\u043f\\u043e\\u043b\\u043d\\u0438\\u0442\\u0435\\u043b(?:\\u0435\\u0439|\\u0438|\\u044f|\\u0435\\u043c)?)\\s+", "", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            return value.Trim(' ', '\'', '"');
+        }
+
+        private static bool LooksLikeGenericFilterTail(string value)
+        {
+            string key = NormalizationService.NormalizeKey(value);
+            return key == "instrumental" ||
+                key == "instrumentals" ||
+                key == "\u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442\u0430\u043b\u044c\u043d\u044b\u0445" ||
+                key == "\u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442\u0430\u043b\u044c\u043d\u044b\u0435" ||
+                key == "duplicates" ||
+                key == "\u043f\u043e\u0432\u0442\u043e\u0440\u043e\u0432";
+        }
+
+        private static void AddUnique(List<string> values, string value)
+        {
+            value = (value ?? "").Trim();
+            if (values == null || value.Length == 0)
+            {
+                return;
+            }
+
+            string key = NormalizationService.NormalizeKey(value);
+            for (int i = 0; i < values.Count; i++)
+            {
+                if (NormalizationService.NormalizeKey(values[i]) == key)
+                {
+                    return;
+                }
+            }
+            values.Add(value);
+        }
+
+        private static int ParseInt(string value)
+        {
+            int parsed;
+            return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed) ? parsed : 0;
+        }
+
+        private struct TrackCountRange
+        {
+            public int Min;
+            public int Max;
         }
 
         private static string ExtractJson(string raw)

@@ -361,10 +361,13 @@ namespace MusicBeePlugin
                 return false;
             }
             string artist = NormalizationService.ArtistKey(track.Artist);
+            string albumArtist = NormalizationService.ArtistKey(track.AlbumArtist);
             for (int i = 0; i < intent.ExcludedArtists.Count; i++)
             {
                 string excluded = NormalizationService.ArtistKey(intent.ExcludedArtists[i]);
-                if (!string.IsNullOrEmpty(excluded) && (artist.IndexOf(excluded) >= 0 || excluded.IndexOf(artist) >= 0))
+                bool artistMatch = !string.IsNullOrEmpty(artist) && (artist.IndexOf(excluded) >= 0 || excluded.IndexOf(artist) >= 0);
+                bool albumArtistMatch = !string.IsNullOrEmpty(albumArtist) && (albumArtist.IndexOf(excluded) >= 0 || excluded.IndexOf(albumArtist) >= 0);
+                if (!string.IsNullOrEmpty(excluded) && (artistMatch || albumArtistMatch))
                 {
                     return true;
                 }
@@ -387,6 +390,14 @@ namespace MusicBeePlugin
 
         private static bool AvoidInstrumental(SearchIntent intent)
         {
+            if (intent != null && intent.ExcludeInstrumental)
+            {
+                return true;
+            }
+            if (intent == null)
+            {
+                return false;
+            }
             string text = NormalizationService.NormalizeKey((intent.QueryText ?? "") + " " + (intent.RetrievalQuery ?? "") + " " + (intent.UserGoal ?? ""));
             if (text.IndexOf("\u043d\u0435 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442") >= 0 ||
                 text.IndexOf("\u0431\u0435\u0437 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442") >= 0 ||
